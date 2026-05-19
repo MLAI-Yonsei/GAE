@@ -15,7 +15,7 @@ N_TOTAL=${6:-50000}
 
 
 
-python3 build_domain_ood_prompts.py \
+python3 scripts/domain_ood/build_prompts.py \
     --out_dir "$OUT_DIR" \
     --seed "$SEED" \
     --max_len "$MAX_LEN" \

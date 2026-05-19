@@ -3,6 +3,9 @@
 Domain-OOD prompt generator enforcing four difficulty rules.
 """
 import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
 import argparse
 import json
 import random
@@ -14,7 +17,7 @@ from datasets import load_dataset, IterableDataset
 from transformers import AutoTokenizer
 from tqdm import tqdm
 
-from text_utils import (
+from utils import (
     normalize_text,
     split_segments,
     build_edgar_template,

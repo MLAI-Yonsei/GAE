@@ -11,6 +11,9 @@ Usage:
         --n_eval 500 \
         --batch_size 64
 """
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 import torch
 import json
@@ -20,7 +23,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from config import Config
-from model_utils import load_model, set_seed, get_layer
+from utils import load_model, set_seed, get_layer
 from run_experiment import load_explainer, evaluate_baseline_fixed
 from ood_utils.data_utils import load_id_dataset, _extract_text
 from ood_utils.evaluation import FAITH_HOOK_SITE_MODES

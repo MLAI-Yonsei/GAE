@@ -25,7 +25,7 @@ for MODEL in gpt2 pythia-410m pythia-1.4b; do
     echo "Evaluating ID faithfulness: $MODEL"
     echo "=============================================="
 
-    CUDA_VISIBLE_DEVICES=$DEVICE python3 eval_id_faithfulness.py \
+    CUDA_VISIBLE_DEVICES=$DEVICE python3 scripts/train_id/eval_id_faithfulness.py \
         --model $MODEL \
         --explainer transcoder \
         --checkpoint $CHECKPOINT \
