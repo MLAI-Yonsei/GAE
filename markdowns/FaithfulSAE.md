@@ -90,5 +90,5 @@ Note: Paper uses TopK SAEs (sparsify library), we use SAELens L1 transcoders. La
 
 ## References
 - Paper: arXiv:2506.17673
-- Code: reference/FaithfulSAE/FaithfulSAE-main/
+- Code: https://github.com/seonglae/faithful-saes
 - HuggingFace: seonglae/faithful-saes (pre-trained SAEs, not transcoders)
