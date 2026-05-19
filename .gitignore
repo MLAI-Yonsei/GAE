@@ -18,3 +18,8 @@ logs
 .claude/worktrees/
 .codex/
 reference/
+
+# User-local data and secrets (added 2026-05-19, public release)
+data/
+.env
+*.pt
