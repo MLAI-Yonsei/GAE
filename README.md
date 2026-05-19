@@ -172,9 +172,12 @@ After each run:
 
 ## Authors
 
-<!-- TODO(public-release-G1): replace with confirmed co-author list and ordering -->
-- Sungjun Lim — MLAI Lab, Yonsei University (`lsj9862@gmail.com`)
-- *(additional co-authors)*
+- Sungjun Lim — Yonsei University (`lsj9862@gmail.com`)
+- Heedong Kim — Yonsei University
+- Andrew Lee\* — Harvard University (`andrewlee@g.harvard.edu`)
+- Kyungwoo Song\* — Yonsei University (`kyungwoo.song@gmail.com`)
+
+\* corresponding authors
 
 ## Citation
 
