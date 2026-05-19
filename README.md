@@ -8,12 +8,25 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue)
+<!-- TODO(public-release-G1): uncomment when the interactive demo is published
+[![Demo](https://img.shields.io/badge/demo-interactive-brightgreen)](https://<DEMO_URL>)
+-->
 
 > Official implementation accompanying our paper *Geometry-Adaptive Explainer (GAE)*.  
 > **Authors:** Sungjun Lim, Heedong Kim, Andrew Lee\*, Kyungwoo Song\* (\*corresponding).  
 > <!-- TODO(public-release-G1): add arXiv link when available -->
 
 ---
+
+<!-- TODO(public-release-G1): uncomment when the interactive demo is published
+## 🔗 Interactive Demo
+
+Explore the paper's qualitative case studies — circuit attribution under
+distribution shift, side-by-side for Fixed and GAE — at
+**[<DEMO_URL>](https://<DEMO_URL>)**.
+
+---
+-->
 
 ## TL;DR
 
