@@ -23,3 +23,8 @@ reference/
 data/
 .env
 *.pt
+
+# Common Python development artifacts
+*.pyc
+.venv/
+*.egg-info/
