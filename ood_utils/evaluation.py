@@ -11,8 +11,8 @@ from tqdm import tqdm
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from activation_utils import extract_hook_activations, extract_residual_stream_activations
-from model_logits_utils import (
+from utils import extract_hook_activations, extract_residual_stream_activations
+from utils import (
     get_true_logits_from_model,
     forward_with_override_and_get_target_logit,
     forward_with_override_logits,

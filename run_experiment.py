@@ -10,8 +10,8 @@ from pathlib import Path
 from tqdm import tqdm
 
 from transformer_lens import HookedTransformer
-from model_utils import load_model, set_seed, get_layer
-from activation_utils import (
+from utils import load_model, set_seed, get_layer
+from utils import (
     extract_residual_stream_activations,
     extract_logits,
     extract_mlp_in_out_activations,
@@ -55,13 +55,13 @@ from gae import (
     select_rank_for_gae,
     select_decoder_mix_alpha,
 )
-from activation_cache import load_activations, save_activations
+from utils import load_activations, save_activations
 from config import Config
 from sae_training.config import LanguageModelSAERunnerConfig
 from sae_training.activations_store import ActivationsStore
 from sae_training.sparse_autoencoder import SparseAutoencoder as SaeLensSparseAutoencoder
 from sae_training.train_sae_on_language_model import train_sae_on_language_model
-from training_objectives import erm_loss, term_loss
+from utils import erm_loss, term_loss
 from transformers import get_scheduler
 from saeboost import SAEBoostExplainerAdapter, SAEBoostTranscoderAdapter
 

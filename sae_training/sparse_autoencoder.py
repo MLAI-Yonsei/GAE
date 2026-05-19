@@ -17,7 +17,7 @@ from torch.distributions.categorical import Categorical
 from tqdm import tqdm
 from transformer_lens.hook_points import HookedRootModule, HookPoint
 
-from training_objectives import erm_loss, term_loss
+from utils import erm_loss, term_loss
 from .geom_median.src.geom_median.torch import compute_geometric_median
 
 

@@ -769,7 +769,7 @@ def compute_ce_sensitivity_weights(
     Returns w_j = (1/N) sum_i g_{ij}^2, mean-normalized with epsilon floor.
     Gradients are used purely as a sensitivity diagnostic (no parameter updates).
     """
-    from model_logits_utils import _resolve_hook_name
+    from utils import _resolve_hook_name
 
     if device is None:
         device = Config.device

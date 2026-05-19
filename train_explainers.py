@@ -12,9 +12,9 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from model_utils import load_model, set_seed, get_layer
-from activation_utils import extract_mlp_in_out_activations
-from activation_cache import load_activations, save_activations
+from utils import load_model, set_seed, get_layer
+from utils import extract_mlp_in_out_activations
+from utils import load_activations, save_activations
 from config import Config
 from sae_training.config import LanguageModelSAERunnerConfig
 from sae_training.utils import LMSparseAutoencoderSessionloader
