@@ -28,7 +28,7 @@ distribution shift, side-by-side for Fixed and GAE — at
 ---
 -->
 
-## TL;DR
+## 📝 TL;DR
 
 - Dictionary-based explainers (transcoders, sparse autoencoders) lose faithfulness under distribution shift.
 - We identify the cause as a geometric misalignment between the ID dictionary and the OOD-active subspace (the **faithfulness gap**), and bound the OOD-faithfulness loss by it.
@@ -36,7 +36,7 @@ distribution shift, side-by-side for Fixed and GAE — at
 
 ---
 
-## Installation
+## ⚙️ Installation
 
 ```bash
 git clone https://github.com/MLAI-Yonsei/GAE.git && cd GAE
@@ -55,7 +55,7 @@ source .env
 
 ---
 
-## Quickstart
+## 🚀 Quickstart
 
 Reproduce GAE on the smallest setting (≈ 30 min on a single A100):
 
@@ -71,7 +71,7 @@ Results land in `results/timeshift_ood_gpt2_sae_fineweb_gae.json` with nAOPC, nC
 
 ---
 
-## Reproducing the Paper Results
+## 📊 Reproducing the Paper Results
 
 One script per (setting × baseline) cell. To sweep all baselines for one model:
 
@@ -101,7 +101,7 @@ Implementation: `ood_utils/evaluation.py`. Seed: `2026`, evaluation at `pos=-1`.
 
 ---
 
-## Repository Layout
+## 📁 Repository Layout
 
 ```
 GAE/
@@ -126,7 +126,7 @@ Default mid-layer (`config.py`): GPT-2 `L=8`, Pythia-1.4B `L=15`. Evaluation at 
 
 ---
 
-## Method at a Glance
+## 🔬 Method at a Glance
 
 GAE adapts a dictionary explainer to OOD in two training-free steps (paper §4):
 
@@ -137,7 +137,7 @@ No gradient updates, no labels — only an unlabeled OOD activation pool.
 
 ---
 
-## Authors
+## 👥 Authors
 
 - Sungjun Lim — Yonsei University (`lsj9862@gmail.com`)
 - Heedong Kim — Yonsei University
@@ -146,7 +146,7 @@ No gradient updates, no labels — only an unlabeled OOD activation pool.
 
 \* corresponding authors
 
-## Citation
+## 📖 Citation
 
 If you use this code, please cite:
 
@@ -160,17 +160,17 @@ If you use this code, please cite:
 }
 ```
 
-## Contact
+## 📬 Contact
 
 Questions and issues: please open a GitHub issue or contact
 Sungjun Lim (`lsj9862@gmail.com`).
 
-## License
+## 📄 License
 
 This code is released under the Apache 2.0 License. See
 [`LICENSE`](LICENSE) for the full text.
 
-## Acknowledgements
+## 🙏 Acknowledgements
 
 We thank the maintainers of [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens)
 and [SAELens](https://github.com/jbloomAus/SAELens), on which this
