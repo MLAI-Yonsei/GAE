@@ -147,8 +147,6 @@ If you use this code, please cite:
 }
 ```
 
-<!-- TODO(public-release-G1): add arXiv link when available -->
-
 ## Contact
 
 Questions and issues: please open a GitHub issue or contact
