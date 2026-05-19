@@ -167,3 +167,43 @@ After each run:
 - verify result file naming matches the expected task prefix
 - check that every baseline block contains all three causal metrics
 - compare runs only when non-data settings are identical
+
+---
+
+## Authors
+
+<!-- TODO(public-release-G1): replace with confirmed co-author list and ordering -->
+- Sungjun Lim — MLAI Lab, Yonsei University (`lsj9862@gmail.com`)
+- *(additional co-authors)*
+
+## Citation
+
+If you use this code, please cite:
+
+<!-- TODO(public-release-G1): update title, authors, and venue once finalized -->
+```bibtex
+@inproceedings{lim2026gae,
+  title  = {<paper title>},
+  author = {Lim, Sungjun and ...},
+  year   = {2026},
+  note   = {Preprint / venue TBD}
+}
+```
+
+<!-- TODO(public-release-G1): add arXiv link when available -->
+
+## Contact
+
+Questions and issues: please open a GitHub issue or contact
+Sungjun Lim (`lsj9862@gmail.com`).
+
+## License
+
+This code is released under the Apache 2.0 License. See
+[`LICENSE`](LICENSE) for the full text.
+
+## Acknowledgements
+
+We thank the maintainers of [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens)
+and [SAELens](https://github.com/jbloomAus/SAELens), on which this
+codebase depends.
