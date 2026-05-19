@@ -1,10 +1,9 @@
 # Geometry-Adaptive Explainer (GAE)
 
-<p align="center">
-  <img src="assets/intro_figure.png" alt="GAE overview: dictionary explainer faithfulness gap under distribution shift, and how GAE closes it via Procrustes alignment and closed-form decoder refit." width="100%">
-</p>
-
-**Restoring explanation faithfulness under distribution shift, training-free.**
+> Official implementation accompanying our paper *Geometry-Adaptive Explainer for Faithful Dictionary-Based Interpretability under Distribution Shift*.  
+> **Authors:** [Sungjun Lim](https://sungjun98.github.io/), Heedong Kim, [Andrew Lee](https://ajyl.github.io/about)\*, [Kyungwoo Song](https://mlai.yonsei.ac.kr/)\* (\*corresponding).  
+> <!-- TODO(public-release-G1): add arXiv link when available -->
+> 
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue)
@@ -12,9 +11,7 @@
 [![Demo](https://img.shields.io/badge/demo-interactive-brightgreen)](https://<DEMO_URL>)
 -->
 
-> Official implementation accompanying our paper *Geometry-Adaptive Explainer (GAE)*.  
-> **Authors:** Sungjun Lim, Heedong Kim, Andrew Lee\*, Kyungwoo Song\* (\*corresponding).  
-> <!-- TODO(public-release-G1): add arXiv link when available -->
+
 
 ---
 
@@ -29,6 +26,12 @@ distribution shift, side-by-side for Fixed and GAE — at
 -->
 
 ## 📝 TL;DR
+
+<p align="center">
+  <img src="assets/intro_figure.png" alt="GAE overview: dictionary explainer faithfulness gap under distribution shift, and how GAE closes it via Procrustes alignment and closed-form decoder refit." width="100%">
+</p>
+
+**Restoring explanation faithfulness under distribution shift, training-free.**
 
 - Dictionary-based explainers (transcoders, sparse autoencoders) lose faithfulness under distribution shift.
 - We identify the cause as a geometric misalignment between the ID dictionary and the OOD-active subspace (the **faithfulness gap**), and bound the OOD-faithfulness loss by it.
@@ -136,15 +139,6 @@ GAE adapts a dictionary explainer to OOD in two training-free steps (paper §4):
 No gradient updates, no labels — only an unlabeled OOD activation pool.
 
 ---
-
-## 👥 Authors
-
-- Sungjun Lim — Yonsei University (`lsj9862@gmail.com`)
-- Heedong Kim — Yonsei University
-- Andrew Lee\* — Harvard University (`andrewlee@g.harvard.edu`)
-- Kyungwoo Song\* — Yonsei University (`kyungwoo.song@gmail.com`)
-
-\* corresponding authors
 
 ## 📖 Citation
 
