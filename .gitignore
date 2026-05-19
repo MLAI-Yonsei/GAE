@@ -1,0 +1,20 @@
+__pycache__
+Toy1_result
+Toy2_result
+transformer_lens_docs_17k.txt
+checkpoints
+results/
+SAEBoost-main/
+transcoder_circuits-master/
+wandb
+
+# Local environment / runtime state
+logs
+.claude/hooks/
+.claude/projects/
+.claude/scheduled_tasks.lock
+.claude/skills/
+.claude/slack_threads.json
+.claude/worktrees/
+.codex/
+reference/

@@ -1,0 +1,9 @@
+matplotlib
+numpy==1.26.4
+scipy==1.15.3
+torch==2.8.0
+transformer-lens>=1.0.0
+datasets>=2.0.0
+transformers>=4.20.0
+tqdm
+wandb

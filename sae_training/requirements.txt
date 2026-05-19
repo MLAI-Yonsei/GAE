@@ -1,0 +1,10 @@
+datasets
+einops
+ipython
+jaxtyping
+matplotlib
+plotly
+setuptools
+tqdm
+transformer_lens
+wandb
