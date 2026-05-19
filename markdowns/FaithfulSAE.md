@@ -82,8 +82,6 @@ Note: Paper uses TopK SAEs (sparsify library), we use SAELens L1 transcoders. La
 ---
 
 ## Future Scope
-- Domain OOD evaluation (pipeline ready, needs eval script)
-- Adversarial OOD evaluation (pipeline ready, needs eval script)
 - SAE explainer type (needs separate training + evaluation)
 
 ---
