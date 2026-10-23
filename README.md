@@ -1,10 +1,8 @@
 # Geometry-Adaptive Explainer (GAE)
 
-**Accepted at NeurIPS 2026**
+Official implementation of **Geometry-Adaptive Explainer for Faithful Dictionary-Based Interpretability under Distribution Shift** (**NeurIPS 2026**).
 
-Official implementation of **Geometry-Adaptive Explainer for Faithful Dictionary-Based Interpretability under Distribution Shift**.
-
-**Authors:** [Sungjun Lim](https://sungjun98.github.io/), Heedong Kim, [Andrew Lee](https://ajyl.github.io/about)\*, [Kyungwoo Song](https://mlai.yonsei.ac.kr/)\*.
+👥 **Authors:** [Sungjun Lim](https://sungjun98.github.io/), Heedong Kim, [Andrew Lee](https://ajyl.github.io/about)\*, [Kyungwoo Song](https://mlai.yonsei.ac.kr/)\*.
 \* Corresponding authors.
 
 [📄 Paper](https://arxiv.org/abs/2605.21849) · [🌐 Project page & interactive analysis](https://sungjun98.github.io/projects/gae/)
@@ -12,9 +10,9 @@ Official implementation of **Geometry-Adaptive Explainer for Faithful Dictionary
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue)
 
-[Overview](#overview) · [Method](#method) · [Installation & usage](#installation--usage) · [Main results](#main-results) · [Code layout](#code-layout) · [Citation](#citation)
+[🔍 Overview](#-overview) · [🔬 Method](#-method) · [🚀 Installation & usage](#-installation--usage) · [📊 Main results](#-main-results) · [📁 Code layout](#-code-layout) · [📚 Citation](#-citation)
 
-## Overview
+## 🔍 Overview
 
 **Restore explanation faithfulness under distribution shift without gradient updates.**
 
@@ -34,7 +32,7 @@ The decoder directions change to better explain the shifted model activations.
 - **Method:** align the dictionary and refit the decoder with closed-form linear algebra.
 - **Evidence:** improve causal faithfulness across temporal, domain, and adversarial shifts with a small OOD activation pool.
 
-## Method
+## 🔬 Method
 
 GAE takes an ID-trained dictionary explainer and unlabeled OOD activations, and returns an adapted decoder and bias.
 The encoder remains fixed throughout both steps.
@@ -47,7 +45,7 @@ The encoder remains fixed throughout both steps.
 The two steps are implemented in [`gae.py`](gae.py) as `gae_torch` and `fit_affine_constrained_decoder`.
 `gae_torch` performs the alignment step; use the decoder refit as well to obtain the complete adaptation shown below.
 
-## Installation & usage
+## 🚀 Installation & usage
 
 Use Python 3.10 or newer.
 The core functions in `gae.py` require PyTorch and NumPy:
@@ -60,7 +58,7 @@ python -m pip install torch==2.8.0 numpy==1.26.4
 
 The model and dataset integration dependencies are listed in [`requirements.txt`](requirements.txt).
 
-### Adapt an existing SAE
+### 🧩 Adapt an existing SAE
 
 Start with your trained SAE, its ID decoder dictionary, and a small pool of unlabeled OOD activations.
 For this example, use a CPU explainer and float32 CPU tensors.
@@ -110,7 +108,7 @@ For a **transcoder**, `activations_in` contains the encoder-input activations an
 Pass these output targets to `gae_torch` to estimate geometry in the same space as the decoder dictionary.
 The rank, fitting sample count, and regularization strengths are arguments of the two functions; see their docstrings in [`gae.py`](gae.py).
 
-## Main results
+## 📊 Main results
 
 Representative **GPT-2 Small transcoder** results reported in the paper are shown below.
 The metric is **nComp ↑**, the normalized logit drop after ablating the top 32 features.
@@ -122,7 +120,7 @@ SAEBoost is the strongest training-based baseline on this metric in these three 
 | Domain | Edgar | 1.025 | 1.542 | **1.618** |
 | Adversarial | HaluEval | 0.737 | 0.921 | **0.963** |
 
-### Adaptation cost
+### ⚡ Adaptation cost
 
 | Method | OOD budget | GPT-2 | Pythia-1.4B |
 |---|---|---:|---:|
@@ -133,7 +131,7 @@ SAEBoost is the strongest training-based baseline on this metric in these three 
 These are reported adaptation timings, rather than end-to-end experiment runtimes.
 See the [paper](https://arxiv.org/abs/2605.21849) for the full SAE and transcoder comparisons, additional models, metrics, and analysis, or explore the [project page](https://sungjun98.github.io/projects/gae/) for interactive results and qualitative examples.
 
-## Code layout
+## 📁 Code layout
 
 | File / directory | Role |
 |---|---|
@@ -147,7 +145,7 @@ See the [paper](https://arxiv.org/abs/2605.21849) for the full SAE and transcode
 | [`scripts/`](scripts/) | Supporting experiment launchers |
 | [`assets/`](assets/) | Figures used in this README |
 
-## Citation
+## 📚 Citation
 
 If you use GAE in your research, please cite:
 
@@ -161,14 +159,14 @@ If you use GAE in your research, please cite:
 }
 ```
 
-## Contact
+## 📬 Contact
 
 For questions, open a [GitHub issue](https://github.com/MLAI-Yonsei/GAE/issues) or contact Sungjun Lim at `lsj9862@gmail.com`.
 
-## License
+## 📄 License
 
 This code is released under the [Apache 2.0 License](LICENSE).
 
-## Acknowledgements
+## 🙏 Acknowledgements
 
 We thank the maintainers of [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens) and [SAELens](https://github.com/jbloomAus/SAELens), on which the model integration utilities depend.
