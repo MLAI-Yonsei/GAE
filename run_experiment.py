@@ -2572,16 +2572,18 @@ def evaluate_baseline_gae(
             Z=_Z_ood,
             H_target=_H_target_recon,
             b_target=_b_target_recon,
+            subspace_matrix=Config.GAE_SUBSPACE_MATRIX,
         )
         del _Z_ood, _H_target_recon, _b_target_recon
         pbar.update(1)
 
-        # 4) Match dictionary scale
-        with torch.no_grad():
-            orig_norms = B_original.norm(dim=0)
-            gae_norms = B_gae.norm(dim=0)
-            scale = orig_norms / (gae_norms + 1e-8)
-            B_gae = B_gae * scale.unsqueeze(0)
+        # 4) Match dictionary scale (optional, default on)
+        if Config.GAE_STEP1_MATCH_NORMS:
+            with torch.no_grad():
+                orig_norms = B_original.norm(dim=0)
+                gae_norms = B_gae.norm(dim=0)
+                scale = orig_norms / (gae_norms + 1e-8)
+                B_gae = B_gae * scale.unsqueeze(0)
         pbar.update(1)
 
         # 5) Decoder / feature-adapter selection

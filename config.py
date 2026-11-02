@@ -79,6 +79,12 @@ class Config:
     # as unstable for normalized metrics (nAOPC / nSuff / nComp primary scores).
     FAITH_NORM_MIN_DELTA = float(os.environ.get("FAITH_NORM_MIN_DELTA", "0.1"))
 
+    # GAE Step 1 options (defaults = original code).
+    # "centered": covariance; "second_moment": E[h h^T] as in the paper's Algorithm 1.
+    GAE_SUBSPACE_MATRIX = os.environ.get("GAE_SUBSPACE_MATRIX", "centered")
+    # Rescale each Step 1 decoder column to the original column norm.
+    GAE_STEP1_MATCH_NORMS = os.environ.get("GAE_STEP1_MATCH_NORMS", "1") == "1"
+
     # Affine Constrained GAE (decoder prior + affine bias).
     GAE_AC_LAMBDA_GEOM = float(os.environ.get("GAE_AC_LAMBDA_GEOM", "1e-1"))
     GAE_AC_LAMBDA_ID = float(os.environ.get("GAE_AC_LAMBDA_ID", "5e-2"))

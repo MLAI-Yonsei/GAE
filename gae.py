@@ -126,6 +126,7 @@ def gae_torch(
     Z: Optional[torch.Tensor] = None,
     H_target: Optional[torch.Tensor] = None,
     b_target: Optional[torch.Tensor] = None,
+    subspace_matrix: str = "centered",
 ):
     """
     GAE in PyTorch.
@@ -146,6 +147,8 @@ def gae_torch(
             transcoder, h for SAE). Required when recon_lambda > 0.
         b_target: Optional [d] decoder-output bias (b_dec_out for transcoder,
             b_dec for SAE). Required when recon_lambda > 0.
+        subspace_matrix: "centered" (covariance, default) or "second_moment"
+            (E[h h^T], the paper's Algorithm 1) for the top-r OOD subspace.
 
     Returns:
         B_gae: Geometry-adapted dictionary, shape [d, k]
@@ -172,9 +175,14 @@ def gae_torch(
     U, S, Vh = torch.linalg.svd(B, full_matrices=False)
     U_ref = U[:, :r]  # [d, r]
 
-    # 2) Cov + U_ood
-    Hc = H - H.mean(dim=0, keepdim=True)
-    denom = max(N - 1, 1)
+    # 2) Cov (or second moment) + U_ood
+    assert subspace_matrix in ("centered", "second_moment"), subspace_matrix
+    if subspace_matrix == "centered":
+        Hc = H - H.mean(dim=0, keepdim=True)
+        denom = max(N - 1, 1)
+    else:
+        Hc = H
+        denom = N
     C = (Hc.T @ Hc) / denom  # [d, d]
     evals, evecs = torch.linalg.eigh(C)  # ascending order
     idx = torch.argsort(evals, descending=True)
