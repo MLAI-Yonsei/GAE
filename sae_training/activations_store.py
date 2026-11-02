@@ -72,10 +72,12 @@ class ActivationsStore:
                 load_kwargs = dict(split=split, streaming=streaming)
                 if cache_dir:
                     load_kwargs["cache_dir"] = cache_dir
-                # Local file path: load as json dataset
-                if os.path.exists(cfg.dataset_path):
-                    print(f"Loading dataset from local file: {cfg.dataset_path}")
-                    self.dataset = load_dataset("json", data_files=cfg.dataset_path, **load_kwargs)
+                # Local file(s): comma-separated paths, read in the given order
+                local_files = cfg.dataset_path.split(",")
+                if all(os.path.exists(p) for p in local_files):
+                    print(f"Loading dataset from local file(s): {local_files}")
+                    builder = "parquet" if local_files[0].endswith(".parquet") else "json"
+                    self.dataset = load_dataset(builder, data_files=local_files, **load_kwargs)
                 elif getattr(cfg, "dataset_name", None):
                     self.dataset = load_dataset(cfg.dataset_path, name=cfg.dataset_name, **load_kwargs)
                 else:

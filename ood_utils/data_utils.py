@@ -1,5 +1,6 @@
 """Shared dataset utilities for OOD experiments."""
 import logging
+import os
 import warnings
 from datasets import load_dataset, IterableDataset
 try:
@@ -28,7 +29,12 @@ def load_id_dataset(model_name):
         text_field: Name of the text field in the dataset
     """
     if model_name == 'gpt2':
-        dataset = load_dataset("openwebtext", split="train")
+        # GAE_ID_DATA_FILES: comma-separated local parquet shards (skips the full 64GB download)
+        id_files = os.environ.get("GAE_ID_DATA_FILES")
+        if id_files:
+            dataset = load_dataset("parquet", data_files=id_files.split(","), split="train")
+        else:
+            dataset = load_dataset("openwebtext", split="train")
         text_field = "text"
     elif model_name.startswith('pythia'):
         # The Pile dataset - using monology/pile-uncopyrighted (publicly available)
