@@ -66,7 +66,6 @@ W_plus, b_plus = A_plus[:, :-1], A_plus[:, -1]     # 새 decoder와 bias
 ```
 
 - `gae_plus_select`의 기본값은 `mode="elementwise"`, `bound="best"`, `basis="gae"`, `delta=0.05`입니다.
-- 위 코드는 실험 스크립트(`gae_plus_probe.build_candidates`)와 같은 A0·A1·A2를 만듭니다. GPT-2 transcoder, HaluEval 1,000개로 확인했고, A0·A1·A2 차이는 0, 세 mode에서 고른 η도 같았습니다 (`scripts/gae_plus/direct_check.sh`).
 - 논문 방식(Eqs. 5–6)으로 Step 1을 하려면 `gae_torch(..., subspace_matrix="second_moment")`로 바꾸고 열 크기 맞춤 줄을 지우세요.
 
 ---
@@ -87,7 +86,7 @@ gae_plus_select(Z, Y, A0, A1, A2, mode="elementwise", bound="best", delta=0.05, 
 | `mode` | 상한을 어디에 몇 개 붙일지 | `"elementwise"`, `"matrix"`, `"nosplit"` | `"elementwise"` | `"nosplit"` |
 | `bound` | 상한에 쓸 부등식 | `"best"`, `"bernstein"`, `"chebyshev"` | `"best"` | `"chebyshev"` |
 | `delta` | 전체 실패 확률. 작을수록 상한이 커지고 η가 0 쪽으로 감 | 0 < δ < 1 | `0.05` | `0.05` |
-| `basis` | 상한을 붙일 계수 기준 (`mode="elementwise"`일 때만 적용) | `"gae"`, `"step"` | `"gae"` | 해당 없음 |
+| `basis` | 상한을 붙일 계수 기준 (`mode="elementwise"`일 때만 적용) | `"gae"`, `"step"` | `"gae"` | `"step"` |
 
 ```python
 # 기본값
