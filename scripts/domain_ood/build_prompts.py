@@ -54,8 +54,8 @@ def _load_patents(split: str = "train"):
     return ds, text_field
 
 
-def _load_edgar(split: str = "train"):
-    ds = load_dataset("jlohding/sp500-edgar-10k", split=split, streaming=True)
+def _load_edgar(split: str = "train", revision=None):
+    ds = load_dataset("jlohding/sp500-edgar-10k", split=split, streaming=True, revision=revision)
     # item_1a only
     def _item_1a(ex):
         for key in ("item_1a", "item1a", "item_1A", "item1A", "risk_factors"):
@@ -194,6 +194,8 @@ def main():
     parser.add_argument("--ood_set", type=str, default="all",
                         choices=["all", "edgar", "patents"],
                         help="Which domain OOD set to generate")
+    parser.add_argument("--edgar_revision", type=str, default=None,
+                        help="Pin the jlohding/sp500-edgar-10k dataset revision (commit hash)")
     parser.add_argument("--dry_run", action="store_true")
     args = parser.parse_args()
 
@@ -225,13 +227,14 @@ def main():
         per_ds = args.n_total // 2
         targets = {"edgar": per_ds, "patents": args.n_total - per_ds}
         datasets = {
-            "edgar": _load_edgar("train"),
+            "edgar": _load_edgar("train", args.edgar_revision),
             "patents": _load_patents("train"),
         }
     else:
         targets = {args.ood_set: args.n_total}
         datasets = {
-            args.ood_set: _load_edgar("train") if args.ood_set == "edgar" else _load_patents("train"),
+            args.ood_set: (_load_edgar("train", args.edgar_revision) if args.ood_set == "edgar"
+                           else _load_patents("train")),
         }
 
     per_dataset_examples = {k: [] for k in datasets.keys()}

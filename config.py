@@ -85,6 +85,9 @@ class Config:
     # Rescale each Step 1 decoder column to the original column norm.
     GAE_STEP1_MATCH_NORMS = os.environ.get("GAE_STEP1_MATCH_NORMS", "1") == "1"
 
+    # Domain OOD (JSONL): evaluate on prompts disjoint from the GAE fit set (default off = original).
+    DOMAIN_EVAL_DISJOINT = os.environ.get("DOMAIN_EVAL_DISJOINT", "0") == "1"
+
     # Affine Constrained GAE (decoder prior + affine bias).
     GAE_AC_LAMBDA_GEOM = float(os.environ.get("GAE_AC_LAMBDA_GEOM", "1e-1"))
     GAE_AC_LAMBDA_ID = float(os.environ.get("GAE_AC_LAMBDA_ID", "5e-2"))

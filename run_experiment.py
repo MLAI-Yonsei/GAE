@@ -5219,12 +5219,21 @@ def run_domain_ood_experiment(
     eval_tokens_list = []
     eval_target_token_ids = None
     if use_jsonl:
-        rng = np.random.RandomState(Config.SEED + 1)
-        rng.shuffle(jsonl_records)
-        if n_eval_samples == -1:
-            eval_records = jsonl_records
+        if Config.DOMAIN_EVAL_DISJOINT:
+            # Same order as the activation branch (fresh load + shuffle with SEED);
+            # skip its first N_COV records (the GAE fit set) so eval prompts are disjoint.
+            order = _load_domain_ood_jsonl_records(jsonl_path)
+            np.random.RandomState(Config.SEED).shuffle(order)
+            rest = order[Config.N_COV:]
+            eval_records = rest if n_eval_samples == -1 else rest[:n_eval_samples]
+            print(f"Disjoint eval: {len(eval_records)} prompts after the first {Config.N_COV} (fit) records.")
         else:
-            eval_records = jsonl_records[:n_eval_samples]
+            rng = np.random.RandomState(Config.SEED + 1)
+            rng.shuffle(jsonl_records)
+            if n_eval_samples == -1:
+                eval_records = jsonl_records
+            else:
+                eval_records = jsonl_records[:n_eval_samples]
         eval_tokens_list, eval_target_token_ids = _records_to_tokens(eval_records)
         print(f"Loaded {len(eval_tokens_list)} evaluation sequences from JSONL.")
         # Optionally force target_mode to provided for JSONL inputs
