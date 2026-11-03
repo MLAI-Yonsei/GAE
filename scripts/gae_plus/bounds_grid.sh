@@ -1,6 +1,6 @@
 #!/bin/bash
 # GAE+ bounds grid on GPT-2 + Transcoder + HaluEval: a_N/b_N by Chebyshev or best inequality,
-# sample split off and on (both run), eta free and tied (eta1 = eta2), and (split on) element-wise
+# sample split off and on (both run), one bound on H and one on g, and (split on) element-wise
 # Bonferroni bounds in the step and full-GAE bases. Selected eta is scored
 # on held-out test activations.
 # Paper Table 9 setting, lambda_id = 0 for GAE+. Writes results/gae_plus/<run>/bounds_grid_split_{off,on}.json.

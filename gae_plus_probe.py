@@ -113,7 +113,7 @@ def main():
         "H": H.tolist(), "g": g.tolist(), "K": K.tolist(),
         "ranges_observed": {"B=max||z_bar||^2": B, "E_max=max||e0||": E},
         "paired_variance": {"vM": vM, "vT": vT},
-        "sample_change_at": {"(1,0)": change(1, 0), "(1,1)": change(1, 1)},
+        "sample_change_at": {"(1,0) Step 1": change(1, 0), "(0,1) GAE": change(0, 1)},
     }
     for name in ("none", "A", "B"):
         a_N, b_N = (0.0, 0.0) if name == "none" else compute_bounds(Zp, Ep, args.delta, method=name)

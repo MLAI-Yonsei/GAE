@@ -29,14 +29,16 @@ def _recon_err(Z, Y, A):
 
 
 def _feasible_points():
-    return [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.3, 0.1), (0.7, 0.7), (0.5, 0.0)]
+    return [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (0.3, 0.1), (0.5, 0.5), (0.2, 0.0)]
 
 
 def test_apply_eta_endpoints():
     _, _, A0, A1, A2 = _random_problem()
     assert torch.allclose(apply_eta(A0, A1, A2, 0.0, 0.0), A0)
     assert torch.allclose(apply_eta(A0, A1, A2, 1.0, 0.0), A1)
-    assert torch.allclose(apply_eta(A0, A1, A2, 1.0, 1.0), A2)
+    assert torch.allclose(apply_eta(A0, A1, A2, 0.0, 1.0), A2)
+    # mixing weights: A_plus = (1 - eta1 - eta2) A0 + eta1 A1 + eta2 A2
+    assert torch.allclose(apply_eta(A0, A1, A2, 0.3, 0.2), 0.5 * A0 + 0.3 * A1 + 0.2 * A2)
 
 
 def test_quadratic_form_matches_direct_error():
@@ -65,18 +67,21 @@ def test_select_eta_stays_in_triangle_and_hits_corners():
     # no gain anywhere -> keep the original explainer
     e1, e2, J = select_eta(I, torch.zeros(2, dtype=DT), I)
     assert (e1, e2) == (0.0, 0.0) and J == 0.0
-    # unconstrained minimum at (2, 2) -> clipped to the (1, 1) corner
+    # unconstrained minimum at (2, 2) -> projected onto eta1 + eta2 = 1
     e1, e2, _ = select_eta(I, torch.tensor([2.0, 2.0], dtype=DT), I)
-    assert (e1, e2) == (1.0, 1.0)
+    assert (e1, e2) == (0.5, 0.5)
     # unconstrained minimum at (2, -1) -> (1, 0) corner (Step 1 only)
     e1, e2, _ = select_eta(I, torch.tensor([2.0, -1.0], dtype=DT), I)
     assert (e1, e2) == (1.0, 0.0)
+    # unconstrained minimum at (-1, 2) -> (0, 1) corner (full GAE)
+    e1, e2, _ = select_eta(I, torch.tensor([-1.0, 2.0], dtype=DT), I)
+    assert (e1, e2) == (0.0, 1.0)
     # random problems: always feasible
     for _ in range(20):
         Z, Y, A0, A1, A2 = _random_problem()
         H, g, K, _ = eta_objective_terms(Z, Y, A0, A1, A2)
         e1, e2, _ = select_eta(H, g, K, a_N=0.1, b_N=0.1)
-        assert 0.0 <= e2 <= e1 <= 1.0
+        assert e1 >= 0.0 and e2 >= 0.0 and e1 + e2 <= 1.0 + 1e-12
 
 
 def test_select_eta_without_penalty_matches_brute_force():
@@ -85,7 +90,7 @@ def test_select_eta_without_penalty_matches_brute_force():
     e1, e2, J = select_eta(H, g, K, a_N=0.0, b_N=0.0, step=0.05)
     best = min(
         (_recon_err(Z, Y, apply_eta(A0, A1, A2, i / 20, j / 20)) - R0, i / 20, j / 20)
-        for i in range(21) for j in range(i + 1)
+        for i in range(21) for j in range(21 - i)
     )
     assert abs(J - best[0]) < 1e-9
     assert abs(e1 - best[1]) < 1e-9 and abs(e2 - best[2]) < 1e-9
@@ -260,10 +265,10 @@ def test_best_is_the_smaller_valid_radius():
         assert compute_bounds(Z, E0) == (a_b, b_b)                  # default method is "best"
 
 
-def _explicit_split_ranges(Z, Y, A0, A1, A2):
+def _explicit_split_ranges(Z, Y, A0, A1, A2, basis):
     """Independent reference: Q_i[j,l] = <D_j zb_i, D_l zb_i>, q_i[j] = <e0_i, D_j zb_i>."""
     Zb = torch.cat([Z, torch.ones(len(Z), 1, dtype=DT)], dim=1)
-    D1, D2 = A1 - A0, A2 - A1
+    D1, D2 = A1 - A0, (A2 - A1) if basis == "step" else (A2 - A0)
     L_H, L_g = 0.0, 0.0
     for zb, y in zip(Zb, Y):
         p = torch.stack([D1 @ zb, D2 @ zb])               # [2, d]
@@ -276,14 +281,15 @@ def _explicit_split_ranges(Z, Y, A0, A1, A2):
 def test_split_bounds_match_explicit_formulas():
     Z, Y, A0, A1, A2 = _random_problem(N=30)
     n, delta = 30, 0.05
-    L_H, L_g = _explicit_split_ranges(Z, Y, A0, A1, A2)
-    a_c, b_c = split_bounds(Z, Y, A0, A1, A2, delta, method="chebyshev")
-    assert abs(a_c - L_H * math.sqrt(2 / (n * delta))) < 1e-9
-    assert abs(b_c - L_g * math.sqrt(2 / (n * delta))) < 1e-9
-    a_b, b_b = split_bounds(Z, Y, A0, A1, A2, delta, method="best")
-    a_t = bernstein_radius(2 * L_H / n, L_H ** 2 / n, 4, delta / 2)
-    b_p = bernstein_radius(2 * L_g / n, L_g ** 2 / n, 2, delta / 2)
-    assert abs(a_b - min(a_c, a_t)) < 1e-9 and abs(b_b - min(b_c, b_p)) < 1e-9
+    for basis in ("gae", "step"):
+        L_H, L_g = _explicit_split_ranges(Z, Y, A0, A1, A2, basis)
+        a_c, b_c = split_bounds(Z, Y, A0, A1, A2, delta, method="chebyshev", basis=basis)
+        assert abs(a_c - L_H * math.sqrt(2 / (n * delta))) < 1e-9
+        assert abs(b_c - L_g * math.sqrt(2 / (n * delta))) < 1e-9
+        a_b, b_b = split_bounds(Z, Y, A0, A1, A2, delta, method="best", basis=basis)
+        a_t = bernstein_radius(2 * L_H / n, L_H ** 2 / n, 4, delta / 2)
+        b_p = bernstein_radius(2 * L_g / n, L_g ** 2 / n, 2, delta / 2)
+        assert abs(a_b - min(a_c, a_t)) < 1e-9 and abs(b_b - min(b_c, b_p)) < 1e-9
 
 
 def test_split_bounds_cover_true_error():
@@ -318,20 +324,17 @@ def test_split_penalty_protects_true_objective():
         assert true_J <= upper + 1e-9
 
 
-def test_tied_mode_equals_one_dimensional_search():
-    """A1 := A0 and K = diag(0, 1): the selected eta has eta1 = eta2 = t and matches a 1-D search over t."""
-    Z, Y, A0, _, A2 = _random_problem(N=60)
-    H, g, _, _ = eta_objective_terms(Z, Y, A0, A0, A2)
-    K = torch.diag(torch.tensor([0.0, 1.0], dtype=DT))
-    for a_N, b_N in ((0.0, 0.0), (0.5, 0.3), (5.0, 2.0)):
-        e1, e2, J = select_eta(H, g, K, a_N, b_N)
-        assert abs(e1 - e2) < 1e-12
-        D = A2 - A0
-        best = min(
-            (_recon_err(Z, Y, A0 + (i / 100) * D) - _recon_err(Z, Y, A0) + a_N * (i / 100) ** 2 + 2 * b_N * (i / 100), i / 100)
-            for i in range(101)
-        )
-        assert abs(J - best[0]) < 1e-9 and abs(e2 - best[1]) < 1e-9
+def test_select_eta_same_in_both_bases_when_penalty_is_basis_free():
+    """With K = <D_j, D_l>_F the objective depends only on A_plus, so both bases pick the same eta."""
+    Z, Y, A0, A1, A2 = _random_problem(N=60)
+    for a_N, b_N in ((0.0, 0.0), (0.05, 0.03), (0.5, 0.2)):
+        out = {b: select_eta(*eta_objective_terms(Z, Y, A0, A1, A2, b)[:3], a_N, b_N, basis=b) for b in ("gae", "step")}
+        assert out["gae"][:2] == out["step"][:2] and abs(out["gae"][2] - out["step"][2]) < 1e-9
+        e1, e2, J = out["gae"]
+        D = apply_eta(A0, A1, A2, e1, e2) - A0
+        nD2 = (D ** 2).sum().item()
+        direct = _recon_err(Z, Y, A0 + D) - _recon_err(Z, Y, A0) + a_N * nD2 + 2 * b_N * math.sqrt(nD2)
+        assert abs(J - direct) < 1e-9
 
 
 def _explicit_entries(Z, Y, A0, A1, A2, basis):
@@ -384,7 +387,7 @@ def test_elementwise_penalty_protects_true_objective_and_bases_agree():
         H, g, _, _ = elementwise_bounds(Z[:100], Y[:100], A0, A1, A2, basis=basis)
         rH, rg = (H - Hp).abs(), (g - gp).abs()           # exact deviations as radii
         for e1, e2 in _feasible_points():
-            y = torch.tensor([e1, e2] if basis == "step" else [e1 - e2, e2], dtype=DT)
+            y = torch.tensor([e1 + e2, e2] if basis == "step" else [e1, e2], dtype=DT)
             true_J = (y @ Hp @ y - 2 * gp @ y).item()
             upper = (y @ H @ y - 2 * g @ y + y.abs() @ rH @ y.abs() + 2 * y.abs() @ rg).item()
             assert true_J <= upper + 1e-9
@@ -403,18 +406,11 @@ def test_gae_plus_select_modes_and_defaults():
     H, g, rH, rg = elementwise_bounds(Z, Y, A0, A1, A2, 0.05, "best", "gae")
     assert (e1, e2) == select_eta_elementwise(H, g, rH, rg, "gae")[:2]
     assert torch.allclose(Ap, apply_eta(A0, A1, A2, e1, e2))
-    # tie: eta1 = eta2 = t, A_plus = A0 + t (A2 - A0), 2x2 bounds with K = diag(0, 1)
-    t1, t2, At = gae_plus_select(Z, Y, A0, A1, A2, mode="tie")
-    Ht, gt, _, _ = eta_objective_terms(Z, Y, A0, A0, A2)
-    a_N, b_N = split_bounds(Z, Y, A0, A0, A2, 0.05, "best")
-    K = torch.diag(torch.tensor([0.0, 1.0], dtype=DT))
-    assert t1 == t2 and (t1, t2) == select_eta(Ht, gt, K, a_N, b_N)[:2]
-    assert torch.allclose(At, apply_eta(A0, A1, A2, t1, t2))     # same A_plus in the original eta
-    # matrix: free eta, 2x2 operator-norm bound, K = I
+    # matrix: 2x2 operator-norm bound in the step basis, K = I
     m1, m2, Am = gae_plus_select(Z, Y, A0, A1, A2, mode="matrix")
-    Hm, gm, _, _ = eta_objective_terms(Z, Y, A0, A1, A2)
-    a_m, b_m = split_bounds(Z, Y, A0, A1, A2, 0.05, "best")
-    assert (m1, m2) == select_eta(Hm, gm, torch.eye(2, dtype=DT), a_m, b_m)[:2]
+    Hm, gm, _, _ = eta_objective_terms(Z, Y, A0, A1, A2, basis="step")
+    a_m, b_m = split_bounds(Z, Y, A0, A1, A2, 0.05, "best", basis="step")
+    assert (m1, m2) == select_eta(Hm, gm, torch.eye(2, dtype=DT), a_m, b_m, basis="step")[:2]
     assert torch.allclose(Am, apply_eta(A0, A1, A2, m1, m2))
     # elementwise in the (A1 - A0, A2 - A1) basis
     s1, s2, As = gae_plus_select(Z, Y, A0, A1, A2, basis="step")
@@ -423,7 +419,7 @@ def test_gae_plus_select_modes_and_defaults():
     assert torch.allclose(As, apply_eta(A0, A1, A2, s1, s2))
     # chebyshev is selectable; unknown options are rejected
     gae_plus_select(Z, Y, A0, A1, A2, bound="chebyshev")
-    for kw in ({"mode": "free"}, {"bound": "A"}, {"basis": "x"}):
+    for kw in ({"mode": "free"}, {"mode": "tie"}, {"bound": "A"}, {"basis": "x"}):
         try:
             gae_plus_select(Z, Y, A0, A1, A2, **kw)
         except AssertionError:
@@ -445,13 +441,13 @@ def test_bernstein_option_is_pure_tropp_pinelis_and_best_is_min():
         assert compute_bounds(Z, E0, delta, method="best") == (min(a_c, a_t), min(b_c, b_p))
     for n in (8, 30, 1000):                                       # split on: 2x2 and element-wise
         Z, Y, A0, A1, A2 = _random_problem(N=n)
-        a_b, b_b = split_bounds(Z, Y, A0, A1, A2, delta, "bernstein")
-        a_c, b_c = split_bounds(Z, Y, A0, A1, A2, delta, "chebyshev")
-        assert split_bounds(Z, Y, A0, A1, A2, delta, "best") == (min(a_c, a_b), min(b_c, b_b))
-        L_H, L_g = _explicit_split_ranges(Z, Y, A0, A1, A2)
-        assert abs(a_b - bernstein_radius(2 * L_H / n, L_H ** 2 / n, 4, delta / 2)) < 1e-9
-        assert abs(b_b - bernstein_radius(2 * L_g / n, L_g ** 2 / n, 2, delta / 2)) < 1e-9
         for basis in ("step", "gae"):
+            a_b, b_b = split_bounds(Z, Y, A0, A1, A2, delta, "bernstein", basis)
+            a_c, b_c = split_bounds(Z, Y, A0, A1, A2, delta, "chebyshev", basis)
+            assert split_bounds(Z, Y, A0, A1, A2, delta, "best", basis) == (min(a_c, a_b), min(b_c, b_b))
+            L_H, L_g = _explicit_split_ranges(Z, Y, A0, A1, A2, basis)
+            assert abs(a_b - bernstein_radius(2 * L_H / n, L_H ** 2 / n, 4, delta / 2)) < 1e-9
+            assert abs(b_b - bernstein_radius(2 * L_g / n, L_g ** 2 / n, 2, delta / 2)) < 1e-9
             _, _, rHb, rgb = elementwise_bounds(Z, Y, A0, A1, A2, delta, "bernstein", basis)
             _, _, rHc, rgc = elementwise_bounds(Z, Y, A0, A1, A2, delta, "chebyshev", basis)
             _, _, rHm, rgm = elementwise_bounds(Z, Y, A0, A1, A2, delta, "best", basis)
@@ -460,7 +456,7 @@ def test_bernstein_option_is_pure_tropp_pinelis_and_best_is_min():
             ref = torch.tensor([bernstein_radius(2 * x / n, x * x / n, 2, delta / 5) for x in s], dtype=DT)
             assert torch.allclose(torch.cat([rHb.flatten(), rgb]), ref)
     Z, Y, A0, A1, A2 = _random_problem(N=60)
-    for mode in ("elementwise", "tie", "matrix"):
+    for mode in ("elementwise", "matrix"):
         gae_plus_select(Z, Y, A0, A1, A2, mode=mode, bound="bernstein")
 
 

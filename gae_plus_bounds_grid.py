@@ -60,32 +60,25 @@ def main():
         "lam_id": Config.GAE_AC_LAMBDA_ID,
         "test": {"R(A0)": recon_err(Zt, Yt, A0), "R(A1)": recon_err(Zt, Yt, A1), "R(A2)": recon_err(Zt, Yt, A2)},
     }
-    # tie: eta1 = eta2 = t, i.e. A_plus = A0 + t (A2 - A0). Implemented as A1 := A0 (D1 = 0),
-    # K = diag(0, 1) so only eta2 is penalised; the grid's tie-break then returns eta1 = eta2.
-    for tie in (False, True):
-        A1c = A0 if tie else A1
-        H, g, K_D, R0_sel = eta_objective_terms(Zs, Ys, A0, A1c, A2)
-        if args.split == "off":
-            K = K_D
+    # split off: original plan, K = <D_j, D_l>_F; split on: mode "matrix", K = I. Both in the step basis.
+    H, g, K_D, R0_sel = eta_objective_terms(Zs, Ys, A0, A1, A2, basis="step")
+    K = K_D if args.split == "off" else torch.eye(2, **F64)
+    res["matrix"] = {"H": H.tolist(), "g": g.tolist(), "K": K.tolist(), "R0_select": R0_sel}
+    for method in ("none", "chebyshev", "best"):
+        if method == "none":
+            a_N, b_N = 0.0, 0.0
+        elif args.split == "off":
+            a_N, b_N = compute_bounds(Zs, E0s, args.delta, method=method)
         else:
-            K = torch.diag(torch.tensor([0.0, 1.0], **F64)) if tie else torch.eye(2, **F64)
-        tag = "tie" if tie else "free"
-        res[tag] = {"H": H.tolist(), "g": g.tolist(), "K": K.tolist(), "R0_select": R0_sel}
-        for method in ("none", "chebyshev", "best"):
-            if method == "none":
-                a_N, b_N = 0.0, 0.0
-            elif args.split == "off":
-                a_N, b_N = compute_bounds(Zs, E0s, args.delta, method=method)
-            else:
-                a_N, b_N = split_bounds(Zs, Ys, A0, A1c, A2, args.delta, method=method)
-            e1, e2, J = select_eta(H, g, K, a_N, b_N)
-            res[tag][method] = {"a_N": a_N, "b_N": b_N, "eta1": e1, "eta2": e2, "J": J,
-                                "R_test(A_plus)": recon_err(Zt, Yt, apply_eta(A0, A1c, A2, e1, e2))}
-            print(f"[split={args.split} {tag}] {method}: a_N={a_N:.4g} b_N={b_N:.4g} -> eta=({e1:.2f}, {e2:.2f}) "
-                  f"R_test={res[tag][method]['R_test(A_plus)']:.4g} "
-                  f"(A0 {res['test']['R(A0)']:.4g}, A2 {res['test']['R(A2)']:.4g})")
+            a_N, b_N = split_bounds(Zs, Ys, A0, A1, A2, args.delta, method=method, basis="step")
+        e1, e2, J = select_eta(H, g, K, a_N, b_N, basis="step")
+        res["matrix"][method] = {"a_N": a_N, "b_N": b_N, "eta1": e1, "eta2": e2, "J": J,
+                                 "R_test(A_plus)": recon_err(Zt, Yt, apply_eta(A0, A1, A2, e1, e2))}
+        print(f"[split={args.split} matrix] {method}: a_N={a_N:.4g} b_N={b_N:.4g} -> eta=({e1:.2f}, {e2:.2f}) "
+              f"R_test={res['matrix'][method]['R_test(A_plus)']:.4g} "
+              f"(A0 {res['test']['R(A0)']:.4g}, A2 {res['test']['R(A2)']:.4g})")
 
-    # element-wise (Bonferroni over H11, H12, H22, g1, g2): needs held-out samples -> split on, free eta
+    # element-wise (Bonferroni over H11, H12, H22, g1, g2): needs held-out samples -> split on
     if args.split == "on":
         res["elementwise"] = {}
         for basis in ("step", "gae"):

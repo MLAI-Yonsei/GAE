@@ -1,14 +1,16 @@
 """GAE+: choose how much of GAE's Step 1 and Step 2 changes to apply.
 
 A = [W, b] stacks decoder and bias (shape [d, k+1]); z_bar = [z; 1].
-A_plus = A0 + eta1 (A1 - A0) + eta2 (A2 - A1),  0 <= eta2 <= eta1 <= 1.
+A_plus = A0 + eta1 (A1 - A0) + eta2 (A2 - A0) = (1 - eta1 - eta2) A0 + eta1 A1 + eta2 A2,
+eta1, eta2 >= 0, eta1 + eta2 <= 1 (mixing weights of A0, A1, A2).
+basis "gae": coefficients (eta1, eta2) on (A1 - A0, A2 - A0);
+basis "step": the same A_plus written on (A1 - A0, A2 - A1), coefficients (eta1 + eta2, eta2).
 
 Algorithm (entry point: gae_plus_select):
   1. Split the OOD samples into halves A and B.
   2. On A, run GAE: A1 = Step 1 (Eqs. 5-6), A2 = Step 2 (Eqs. 8-11, lambda_id = 0); A0 = original.
   3. On B (held out), estimate the change in reconstruction error and its uncertainty:
      mode "elementwise" (default): per-entry bounds on H, g in the (A1 - A0, A2 - A0) basis;
-     mode "tie": eta1 = eta2, bounds on the single A2 - A0 direction;
      mode "matrix": free eta, operator-norm bound on the 2x2 H (step basis).
      bound "best" (default): min of Chebyshev and Bernstein-type radii; "bernstein": Tropp / Pinelis only.
   4. eta = argmin over the grid of (sample error change + uncertainty penalty); return A_plus.
@@ -25,9 +27,9 @@ import math
 import torch
 
 
-def _per_sample(Z, Y, A0, A1, A2, basis="step"):
+def _per_sample(Z, Y, A0, A1, A2, basis="gae"):
     """D [2, d, k+1], E0 [N, d] (e0_i = y_i - A0 z_bar_i), P [2, N, d] (P[j, i] = D_j z_bar_i).
-    basis "step": D = (A1 - A0, A2 - A1); "gae": D = (A1 - A0, A2 - A0)."""
+    basis "gae": D = (A1 - A0, A2 - A0); "step": D = (A1 - A0, A2 - A1)."""
     Zb = torch.cat([Z, Z.new_ones(Z.shape[0], 1)], dim=1)  # z_bar_i = [z_i; 1], [N, k+1]
     D = torch.stack([A1 - A0, (A2 - A1) if basis == "step" else (A2 - A0)])  # [2, d, k+1]
     E0 = Y - Zb @ A0.T                                     # e0_i = y_i - A0 z_bar_i, [N, d]
@@ -35,9 +37,9 @@ def _per_sample(Z, Y, A0, A1, A2, basis="step"):
     return D, E0, P
 
 
-def eta_objective_terms(Z, Y, A0, A1, A2):
-    """Z [N, k], Y [N, d], A_j [d, k+1] -> H [2, 2], g [2], K [2, 2], R0 (float)."""
-    D, E0, P = _per_sample(Z, Y, A0, A1, A2)
+def eta_objective_terms(Z, Y, A0, A1, A2, basis="gae"):
+    """Z [N, k], Y [N, d], A_j [d, k+1] -> H [2, 2], g [2], K [2, 2], R0 (float), all in `basis`."""
+    D, E0, P = _per_sample(Z, Y, A0, A1, A2, basis)
     N = Z.shape[0]
     H = torch.einsum('jnd,lnd->jl', P, P) / N              # H_jl = mean_i <D_j z_bar_i, D_l z_bar_i>
     g = torch.einsum('nd,jnd->j', E0, P) / N               # g_j = mean_i <e0_i, D_j z_bar_i>
@@ -110,12 +112,12 @@ def compute_bounds(Z, E0, delta=0.05, method="best"):
     return a_N, b_N
 
 
-def split_bounds(Z, Y, A0, A1, A2, delta=0.05, method="best"):
+def split_bounds(Z, Y, A0, A1, A2, delta=0.05, method="best", basis="gae"):
     """Split on (Z, Y = held-out samples, candidates built elsewhere; use K = I):
     a_N >= ||H_hat - H||_op (2x2), b_N >= ||g_hat - g||_2.
     method: "chebyshev" | "bernstein" (Tropp 2x2 / Pinelis) | "best" (min of the two)."""
     assert method in ("chebyshev", "bernstein", "best"), method
-    _, E0, P = _per_sample(Z, Y, A0, A1, A2)
+    _, E0, P = _per_sample(Z, Y, A0, A1, A2, basis)
     n = Z.shape[0]
     L_H = (P ** 2).sum(dim=(0, 2)).max().item()            # max_i tr Q_i >= ||Q_i||_op, ||Q_i||_F
     L_g = torch.einsum('nd,jnd->nj', E0, P).norm(dim=1).max().item()  # max_i ||q_i||
@@ -130,7 +132,7 @@ def split_bounds(Z, Y, A0, A1, A2, delta=0.05, method="best"):
     return min(a_cheb, a_bern), min(b_cheb, b_pin)
 
 
-def elementwise_bounds(Z, Y, A0, A1, A2, delta=0.05, method="best", basis="step"):
+def elementwise_bounds(Z, Y, A0, A1, A2, delta=0.05, method="best", basis="gae"):
     """Split on, Bonferroni over the 5 numbers (H11, H12, H22, g1, g2), delta/5 each, in `basis`.
     method: "chebyshev" | "bernstein" (scalar Bernstein) | "best" (min of the two).
     Returns H, g (held-out means) and per-entry radii rH [2, 2], rg [2] (observed ranges)."""
@@ -148,17 +150,22 @@ def elementwise_bounds(Z, Y, A0, A1, A2, delta=0.05, method="best", basis="step"
 
 
 def _eta_grid(step, dtype, device):
-    """All (eta1, eta2) on a step grid with 0 <= eta2 <= eta1 <= 1."""
+    """All (eta1, eta2) on a step grid with eta1, eta2 >= 0, eta1 + eta2 <= 1."""
     t = torch.arange(0, round(1 / step) + 1, dtype=dtype, device=device) * step
     X = torch.cartesian_prod(t, t)
-    return X[X[:, 1] <= X[:, 0] + 1e-12]
+    return X[X.sum(dim=1) <= 1 + 1e-12]
 
 
-def select_eta_elementwise(H, g, rH, rg, basis="step", step=0.01):
+def _coords(X, basis):
+    """Coefficients of A_plus - A0 on the basis directions: (eta1, eta2) ["gae"], (eta1 + eta2, eta2) ["step"]."""
+    return X if basis == "gae" else torch.stack([X[:, 0] + X[:, 1], X[:, 1]], dim=1)
+
+
+def select_eta_elementwise(H, g, rH, rg, basis="gae", step=0.01):
     """Grid search of J = y^T H y - 2 g^T y + sum_jl |y_j||y_l| rH_jl + 2 sum_j |y_j| rg_j,
-    y = (eta1, eta2) ["step"] or (eta1 - eta2, eta2) ["gae"] -> (eta1, eta2, J_min)."""
+    y = _coords(eta, basis) -> (eta1, eta2, J_min)."""
     X = _eta_grid(step, H.dtype, H.device)
-    Yc = X if basis == "step" else torch.stack([X[:, 0] - X[:, 1], X[:, 1]], dim=1)
+    Yc = _coords(X, basis)
     Ya = Yc.abs()
     J = torch.einsum('pj,jl,pl->p', Yc, H, Yc) - 2 * Yc @ g \
         + torch.einsum('pj,jl,pl->p', Ya, rH, Ya) + 2 * Ya @ rg
@@ -166,43 +173,37 @@ def select_eta_elementwise(H, g, rH, rg, basis="step", step=0.01):
     return X[i, 0].item(), X[i, 1].item(), J[i].item()
 
 
-def select_eta(H, g, K, a_N=0.0, b_N=0.0, step=0.01):
-    """Grid search of J over 0 <= eta2 <= eta1 <= 1 -> (eta1, eta2, J_min)."""
-    X = _eta_grid(step, H.dtype, H.device)                               # 0 <= eta2 <= eta1 <= 1
+def select_eta(H, g, K, a_N=0.0, b_N=0.0, step=0.01, basis="gae"):
+    """Grid search of J over eta1, eta2 >= 0, eta1 + eta2 <= 1; H, g, K in `basis` -> (eta1, eta2, J_min)."""
+    E = _eta_grid(step, H.dtype, H.device)                               # eta1, eta2 >= 0, eta1 + eta2 <= 1
+    X = _coords(E, basis)                                                # coefficients in `basis`
     xKx = torch.einsum('pj,jl,pl->p', X, K, X)                           # ||D(x)||_F^2 per point
     J = torch.einsum('pj,jl,pl->p', X, H, X) - 2 * X @ g \
         + a_N * xKx + 2 * b_N * xKx.clamp_min(0).sqrt()                  # J(x) per point
     i = torch.argmin(J)
-    return X[i, 0].item(), X[i, 1].item(), J[i].item()
+    return E[i, 0].item(), E[i, 1].item(), J[i].item()
 
 
 def apply_eta(A0, A1, A2, eta1, eta2):
-    """A_plus = A0 + eta1 (A1 - A0) + eta2 (A2 - A1)."""
-    return A0 + eta1 * (A1 - A0) + eta2 * (A2 - A1)
+    """A_plus = A0 + eta1 (A1 - A0) + eta2 (A2 - A0)."""
+    return A0 + eta1 * (A1 - A0) + eta2 * (A2 - A0)
 
 
 def gae_plus_select(Z, Y, A0, A1, A2, mode="elementwise", bound="best", delta=0.05, basis="gae"):
     """GAE+ selection on held-out samples Z, Y (A1, A2 must be built on other samples).
     mode "elementwise": Bonferroni bounds on (H11, H12, H22, g1, g2) in the (A1 - A0, A2 - A0) basis, free eta.
-    mode "tie": eta1 = eta2 = t (A_plus = A0 + t (A2 - A0)), 2x2 bounds with K = diag(0, 1).
     mode "matrix": free eta, one operator-norm bound on the 2x2 H and one on g (step basis), K = I.
     bound: "best" (min of Chebyshev and Bernstein-type, default) | "bernstein" (Tropp / Pinelis) | "chebyshev".
     basis (elementwise only): "gae" (A1 - A0, A2 - A0, default) | "step" (A1 - A0, A2 - A1).
     Returns eta1, eta2, A_plus."""
-    assert mode in ("elementwise", "tie", "matrix"), mode
+    assert mode in ("elementwise", "matrix"), mode
     assert bound in ("best", "bernstein", "chebyshev"), bound
     assert basis in ("gae", "step"), basis
     if mode == "elementwise":
         H, g, rH, rg = elementwise_bounds(Z, Y, A0, A1, A2, delta, bound, basis)
         e1, e2, _ = select_eta_elementwise(H, g, rH, rg, basis)
         return e1, e2, apply_eta(A0, A1, A2, e1, e2)
-    if mode == "matrix":
-        H, g, _, _ = eta_objective_terms(Z, Y, A0, A1, A2)
-        a_N, b_N = split_bounds(Z, Y, A0, A1, A2, delta, bound)
-        e1, e2, _ = select_eta(H, g, torch.eye(2, dtype=H.dtype, device=H.device), a_N, b_N)
-        return e1, e2, apply_eta(A0, A1, A2, e1, e2)
-    H, g, _, _ = eta_objective_terms(Z, Y, A0, A0, A2)     # A1 := A0 -> only the A2 - A0 direction
-    a_N, b_N = split_bounds(Z, Y, A0, A0, A2, delta, bound)
-    K = torch.diag(torch.tensor([0.0, 1.0], dtype=H.dtype, device=H.device))
-    e1, e2, _ = select_eta(H, g, K, a_N, b_N)
-    return e1, e2, apply_eta(A0, A0, A2, e1, e2)
+    H, g, _, _ = eta_objective_terms(Z, Y, A0, A1, A2, basis="step")
+    a_N, b_N = split_bounds(Z, Y, A0, A1, A2, delta, bound, basis="step")
+    e1, e2, _ = select_eta(H, g, torch.eye(2, dtype=H.dtype, device=H.device), a_N, b_N, basis="step")
+    return e1, e2, apply_eta(A0, A1, A2, e1, e2)
