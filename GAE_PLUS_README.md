@@ -53,8 +53,8 @@ gae_plus_select(Z, Y, A0, A1, A2, mode="elementwise", bound="best", delta=0.05, 
 |---|---|---|---|---|
 | `Z` | 각 OOD 표본의 feature 값 (원래 encoder가 낸 값), `[n, k]` float64 | (필수) | — | — |
 | `Y` | decoder가 맞춰야 하는 정답 activation, `[n, d]` float64 | (필수) | — | — |
-| `A0, A1, A2` | 서로 비교할 decoder 세 개 (원래 / Step 1 이후 / GAE), 각각 `[W, b]` 형태 `[d, k+1]` float64 | (필수) | — | — |
-| `mode` | 상한을 어디에 몇 개 붙일지 | `"elementwise"`, `"matrix"`, `"nosplit"` | `"elementwise"` (H, g의 숫자 5개에 하나씩) | `"nosplit"` (데이터 통계 M = mean z̄z̄ᵀ, T = mean e₀z̄ᵀ에 2개 → 벌점 a_N‖A₊−A0‖²_F + 2b_N‖A₊−A0‖_F) |
+| `A0, A1, A2` | 서로 비교할 decoder 세 개 (원래 / Step 1 이후 / GAE). 각각 decoder 가중치 W `[d, k]` 옆에 bias b를 한 열로 붙인 행렬 `[d, k+1]`, float64 | (필수) | — | — |
+| `mode` | 상한을 어디에 몇 개 붙일지 | `"elementwise"`, `"matrix"`, `"nosplit"` | `"elementwise"` | `"nosplit"` |
 | `bound` | 상한에 쓸 부등식 | `"best"`, `"bernstein"`, `"chebyshev"` | `"best"` | `"chebyshev"` |
 | `delta` | 전체 실패 확률. 작을수록 상한이 커지고 η가 0 쪽으로 감 | 0 < δ < 1 | `0.05` | `0.05` |
 | `basis` | 상한을 붙일 계수 기준 (`mode="elementwise"`일 때만 적용) | `"gae"`, `"step"` | `"gae"` | 해당 없음 |
