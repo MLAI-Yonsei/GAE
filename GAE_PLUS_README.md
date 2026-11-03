@@ -24,36 +24,50 @@ A0 = 원래 decoder,  A1 = Step 1 이후,  A2 = Step 2 이후 = GAE (λ_id = 0)
 
 ## 1. 기본값으로 실행하기
 
-```python
-from gae_plus import gae_plus_select
-from gae_plus_probe import F64, build_candidates, encode
+기존 GAE 함수(`gae.py`)로 decoder 세 개를 만들고, `gae_plus_select`로 η를 고릅니다. SAE와 transcoder 모두 같은 방식입니다.
 
-# OOD 표본을 둘로 나눕니다: idx_a(절반)는 A1·A2를 만드는 데, idx_b(나머지 절반)는 η를 고르는 데 씁니다.
-A0, A1, A2, _ = build_candidates(explainer, model, layer, id_in, id_out,
-                                 ood_in[idx_a], ood_out[idx_a], r=32)   # idx_a: Step 1, 2
-Z, _ = encode(explainer, ood_in[idx_b])                                 # idx_b: feature [n, k]
-Y = ood_out[idx_b].to(**F64)                                            # idx_b: target  [n, d]
-eta1, eta2, A_plus = gae_plus_select(Z, Y, A0, A1, A2)                  # η 결정
-W_plus, b_plus = A_plus[:, :-1], A_plus[:, -1]
-```
-
-기본값은 `mode="elementwise"`, `bound="best"`, `basis="gae"`, `delta=0.05`입니다.
-
-`gae_plus_probe`에서 가져오는 세 가지:
-
-| 이름 | 하는 일 | 사용법 |
+| 준비물 | 모양 | 뜻 |
 |---|---|---|
-| `F64` | 계산 장치(GPU/CPU)와 float64 정밀도를 묶은 설정 | `x.to(**F64)` 하면 x를 float64로, 계산 장치로 옮김 |
-| `encode` | OOD 입력 activation을 원래 encoder에 넣어 feature를 꺼냄 | `Z, recon = encode(explainer, X)` → `Z`: feature `[n, k]`, `recon`: 원래 decoder로 복원한 값 `[n, d]` |
-| `build_candidates` | 주어진 OOD 표본으로 GAE Step 1·2를 돌려 decoder 세 개를 만듦 (transcoder 전용) | `A0, A1, A2, n_fit = build_candidates(explainer, model, layer, id_in, id_out, ood_in, ood_out, r)` → `n_fit`: Step 2에 실제로 쓴 표본 수 |
+| `explainer` | — | 학습된 SAE / transcoder. `explainer(h, return_z=True)`가 `(복원값, feature)`를 돌려줘야 함 |
+| `B_id`, `b0` | `[d, k]`, `[d]` | 원래 decoder 가중치와 bias. transcoder: `W_dec.T`, `b_dec_out` / SAE: `W_dec.T`, `b_dec` |
+| `H_in` | `[N, d_in]` | OOD 입력 activation |
+| `H_out` | `[N, d]` | decoder가 맞춰야 하는 정답 activation. transcoder면 MLP 출력, SAE면 `H_in`과 같음 |
 
-`build_candidates`에 넣는 값들(`explainer, model, layer, id_in, id_out, ood_in, ood_out`)은 `gae_plus_probe.load_activations`로 한 번에 준비할 수 있습니다.
+모든 텐서는 같은 장치(GPU/CPU)에 있어야 합니다.
 
 ```python
-from gae_plus_probe import load_activations
+import torch
+from gae import gae_torch, fit_affine_constrained_decoder
+from gae_plus import gae_plus_select
 
-model, layer, explainer, ood_in, ood_out, id_in, id_out = load_activations("gpt2", "<transcoder ckpt 경로>", "halu_eval")
+N = H_in.shape[0]
+a, b = slice(0, N // 2), slice(N // 2, N)   # 앞 절반: A1·A2 생성, 뒤 절반: η 선택
+
+# Step 1: OOD 부분공간에 맞춰 회전 + 열 크기를 원래대로 맞춤
+B1, geo = gae_torch(B_id, H_out[a], r=32)
+B1 = B1 * (B_id.norm(dim=0) / (B1.norm(dim=0) + 1e-8))
+
+# Step 2: decoder와 bias를 다시 맞춤 (λ_id = 0)
+W2, b2, _ = fit_affine_constrained_decoder(
+    explainer=explainer, activations_in=H_in[a], activations_target=H_out[a],
+    B_original=B_id, B_gae=B1, U_ood=geo["U_ood"],
+    lam_geom=0.1, lam_id=0.0, lam_gae=0.2, fit_samples=2048)
+
+# decoder 세 개: 가중치 옆에 bias를 한 열로 붙임 [d, k+1]
+A0 = torch.cat([B_id, b0[:, None]], 1).double()   # 원래
+A1 = torch.cat([B1,   b0[:, None]], 1).double()   # Step 1 이후
+A2 = torch.cat([W2,   b2[:, None]], 1).double()   # GAE
+
+# η 결정: A1·A2를 만들 때 쓰지 않은 뒤 절반으로
+with torch.no_grad():
+    _, Z = explainer(H_in[b], return_z=True)       # feature [N/2, k]
+eta1, eta2, A_plus = gae_plus_select(Z.double(), H_out[b].double(), A0, A1, A2)
+W_plus, b_plus = A_plus[:, :-1], A_plus[:, -1]     # 새 decoder와 bias
 ```
+
+- `gae_plus_select`의 기본값은 `mode="elementwise"`, `bound="best"`, `basis="gae"`, `delta=0.05`입니다.
+- 위 코드는 실험 스크립트(`gae_plus_probe.build_candidates`)와 같은 A0·A1·A2를 만듭니다. GPT-2 transcoder, HaluEval 1,000개로 확인했고, A0·A1·A2 차이는 0, 세 mode에서 고른 η도 같았습니다 (`scripts/gae_plus/direct_check.sh`).
+- 논문 방식(Eqs. 5–6)으로 Step 1을 하려면 `gae_torch(..., subspace_matrix="second_moment")`로 바꾸고 열 크기 맞춤 줄을 지우세요.
 
 ---
 
@@ -77,13 +91,13 @@ gae_plus_select(Z, Y, A0, A1, A2, mode="elementwise", bound="best", delta=0.05, 
 
 ```python
 # 기본값
-gae_plus_select(Z, Y, A0, A1, A2)                # Z, Y는 idx_b, A0~A2는 idx_a로 생성 (§1)
+gae_plus_select(Z, Y, A0, A1, A2)                # Z, Y는 뒤 절반, A0~A2는 앞 절반으로 생성 (§1)
 
 # 원래 계획서 (표본 분할 없음)
 gae_plus_select(Z, Y, A0, A1, A2, mode="nosplit", bound="chebyshev")   # Z, Y, A0~A2 모두 OOD 표본 전체
 ```
 
-A1·A2까지 원래 계획서대로(논문 Eqs. 5–6) 만들려면, 스크립트 맨 위 설정을 아래처럼 바꾸세요.
+A1·A2까지 원래 계획서대로(논문 Eqs. 5–6) 만들려면, §1 코드에서는 마지막 항목처럼 바꾸고, 실험 스크립트에서는 맨 위 설정을 아래처럼 바꾸세요.
 GAE+ 스크립트는 코드 기본값(`centered`, `1`)을 씁니다.
 
 ```bash
