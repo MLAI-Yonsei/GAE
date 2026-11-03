@@ -416,9 +416,14 @@ def test_gae_plus_select_modes_and_defaults():
     a_m, b_m = split_bounds(Z, Y, A0, A1, A2, 0.05, "best")
     assert (m1, m2) == select_eta(Hm, gm, torch.eye(2, dtype=DT), a_m, b_m)[:2]
     assert torch.allclose(Am, apply_eta(A0, A1, A2, m1, m2))
+    # elementwise in the (A1 - A0, A2 - A1) basis
+    s1, s2, As = gae_plus_select(Z, Y, A0, A1, A2, basis="step")
+    Hs, gs, rHs, rgs = elementwise_bounds(Z, Y, A0, A1, A2, 0.05, "best", "step")
+    assert (s1, s2) == select_eta_elementwise(Hs, gs, rHs, rgs, "step")[:2]
+    assert torch.allclose(As, apply_eta(A0, A1, A2, s1, s2))
     # chebyshev is selectable; unknown options are rejected
     gae_plus_select(Z, Y, A0, A1, A2, bound="chebyshev")
-    for kw in ({"mode": "free"}, {"bound": "A"}):
+    for kw in ({"mode": "free"}, {"bound": "A"}, {"basis": "x"}):
         try:
             gae_plus_select(Z, Y, A0, A1, A2, **kw)
         except AssertionError:

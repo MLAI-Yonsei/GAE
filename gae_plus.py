@@ -181,18 +181,20 @@ def apply_eta(A0, A1, A2, eta1, eta2):
     return A0 + eta1 * (A1 - A0) + eta2 * (A2 - A1)
 
 
-def gae_plus_select(Z, Y, A0, A1, A2, mode="elementwise", bound="best", delta=0.05):
+def gae_plus_select(Z, Y, A0, A1, A2, mode="elementwise", bound="best", delta=0.05, basis="gae"):
     """GAE+ selection on held-out samples Z, Y (A1, A2 must be built on other samples).
     mode "elementwise": Bonferroni bounds on (H11, H12, H22, g1, g2) in the (A1 - A0, A2 - A0) basis, free eta.
     mode "tie": eta1 = eta2 = t (A_plus = A0 + t (A2 - A0)), 2x2 bounds with K = diag(0, 1).
     mode "matrix": free eta, one operator-norm bound on the 2x2 H and one on g (step basis), K = I.
     bound: "best" (min of Chebyshev and Bernstein-type, default) | "bernstein" (Tropp / Pinelis) | "chebyshev".
+    basis (elementwise only): "gae" (A1 - A0, A2 - A0, default) | "step" (A1 - A0, A2 - A1).
     Returns eta1, eta2, A_plus."""
     assert mode in ("elementwise", "tie", "matrix"), mode
     assert bound in ("best", "bernstein", "chebyshev"), bound
+    assert basis in ("gae", "step"), basis
     if mode == "elementwise":
-        H, g, rH, rg = elementwise_bounds(Z, Y, A0, A1, A2, delta, bound, basis="gae")
-        e1, e2, _ = select_eta_elementwise(H, g, rH, rg, basis="gae")
+        H, g, rH, rg = elementwise_bounds(Z, Y, A0, A1, A2, delta, bound, basis)
+        e1, e2, _ = select_eta_elementwise(H, g, rH, rg, basis)
         return e1, e2, apply_eta(A0, A1, A2, e1, e2)
     if mode == "matrix":
         H, g, _, _ = eta_objective_terms(Z, Y, A0, A1, A2)

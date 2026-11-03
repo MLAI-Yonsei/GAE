@@ -108,104 +108,6 @@ For a **transcoder**, `activations_in` contains the encoder-input activations an
 Pass these output targets to `gae_torch` to estimate geometry in the same space as the decoder dictionary.
 The rank, fitting sample count, and regularization strengths are arguments of the two functions; see their docstrings in [`gae.py`](gae.py).
 
-## ➕ GAE+ (branch `gae+`)
-
-GAE+ decides how much of GAE's Step 1 and Step 2 change to apply, so that the adapted decoder is not worse than the original with high probability.
-With `A = [W, b]` (decoder and bias, shape `[d, k+1]`):
-
-```
-A_plus = A0 + eta1 (A1 - A0) + eta2 (A2 - A1),   0 <= eta2 <= eta1 <= 1
-A0 = original decoder,  A1 = after Step 1,  A2 = after Step 2 (lambda_id = 0)
-```
-
-`eta` minimizes the change in held-out reconstruction error plus an uncertainty penalty with failure probability `delta`.
-`eta = (0, 0)` keeps the original decoder and `eta = (1, 1)` is plain GAE.
-
-### Procedure
-
-1. Split the OOD activations into halves A and B.
-2. Build `A0, A1, A2` on half A (`gae_plus_probe.build_candidates`).
-3. Select `eta` on half B (`gae_plus.gae_plus_select`).
-
-```python
-from gae_plus import gae_plus_select
-from gae_plus_probe import build_candidates, encode
-
-A0, A1, A2, _ = build_candidates(explainer, model, layer, id_in, id_out,
-                                 ood_in[idx_a], ood_out[idx_a], r=32)
-Z, _ = encode(explainer, ood_in[idx_b])          # features [n, k], float64
-Y = ood_out[idx_b].double()                      # targets  [n, d]
-eta1, eta2, A_plus = gae_plus_select(Z, Y, A0, A1, A2)   # mode="elementwise", bound="best", delta=0.05
-W_plus, b_plus = A_plus[:, :-1], A_plus[:, -1]
-```
-
-`Z` and `Y` must not overlap with the samples used to build `A1` and `A2`.
-
-### Options of `gae_plus_select`
-
-| Argument | Value | Meaning |
-|---|---|---|
-| `mode` | **`elementwise`** (default) | Separate bound per entry of `H` (2×2) and `g` (2), Bonferroni over 5 entries, basis `(A1 − A0, A2 − A0)` |
-| | `tie` | `eta1 = eta2`, i.e. `A_plus = A0 + t (A2 − A0)` |
-| | `matrix` | Free `eta`, one operator-norm bound on `H` and one on `g` (basis `(A1 − A0, A2 − A1)`) |
-| `bound` | **`best`** (default) | Smaller of `chebyshev` and `bernstein` |
-| | `bernstein` | `H`: Tropp matrix Bernstein (2015, Thm 1.6.2); `g`: Pinelis dimension-free Bernstein (1994, Thm 3.4) |
-| | `chebyshev` | Chebyshev, radius `s / sqrt(n · delta)` |
-| `delta` | `0.05` | Failure probability (95% guarantee) |
-
-Ranges `s` are the observed maxima on half B, so the guarantee is not strict.
-
-### Reproducing the original plan
-
-The original plan (no sample split, uniform bounds `a_N ||D||_F^2 + 2 b_N ||D||_F`) is kept as separate functions:
-`eta_objective_terms` → `compute_bounds(Z, E0, delta, method)` → `select_eta(H, g, K, a_N, b_N)`.
-`method` is `"A"` (Tropp ambient Bernstein), `"chebyshev"` (`c = sqrt(2 / (N delta))`), `"B"` (Wang–Ramdas empirical Bernstein), `"bernstein"`, or `"best"` (default).
-`gae_plus_bounds_grid.py --split off` runs this path.
-
-### Environment and data
-
-Every script is self-contained: settings at the top, paths overridable by env (`DATA_ROOT`, `CACHE_ROOT`).
-Each one creates the environment (`uv venv --python 3.10 && uv pip sync requirements.lock`) and writes `run_info.txt`, `uncommitted.diff` and a copy of itself to `results/gae_plus/<run>/`.
-
-```bash
-bash scripts/data/download_owt_subset.sh              # OpenWebText shards 0-1 (train) and 79 (held-out ID), pinned + sha256
-bash scripts/train_id/train_gpt2_transcoder.sh [GPU]  # GPT-2 Small transcoder, paper setting (~1 h on A6000)
-bash scripts/gae_plus/build_edgar_prompts.sh          # Edgar prompts, pinned revision
-```
-
-### Experiments (`scripts/gae_plus/`, usage `bash <script> [GPU]`)
-
-| Script | What it does |
-|---|---|
-| `bounds_grid.sh` | Main GAE+ grid on HaluEval: split off/on × free/tie × none/chebyshev/best, plus elementwise; scored on 1,000 held-out activations |
-| `probe_bounds.sh` | Original plan's `a_N`, `b_N` (methods A, B) and selected `eta` |
-| `split_check.sh` | In-sample vs held-out error of `A0, A1, A2` |
-| `reproduce_gpt2_halueval.sh` | Table 2 reproduction, HaluEval |
-| `reproduce_gpt2_edgar.sh` | Table 2 reproduction, Edgar (code defaults) |
-| `reproduce_gpt2_edgar_paper.sh` | Edgar with paper settings (`second_moment`, `lambda_id = 0`) |
-| `reproduce_gpt2_edgar_paper_nonorm.sh` | Same, without Step 1 column-norm matching |
-
-### New environment options (defaults keep the original behavior)
-
-| Variable | Default | Alternative |
-|---|---|---|
-| `GAE_SUBSPACE_MATRIX` | `centered` (covariance) | `second_moment` (paper Eq. 5) |
-| `GAE_STEP1_MATCH_NORMS` | `1` (rescale aligned columns to original norms) | `0` |
-| `GAE_AC_LAMBDA_ID` | `5e-2` | `0` (used by all GAE+ scripts) |
-| `DOMAIN_EVAL_DISJOINT` | `0` | `1`: domain eval prompts disjoint from the GAE fit prompts |
-| `GAE_ID_DATA_FILES` | unset (Hub download) | comma-separated local parquet shards for GPT-2 ID data |
-
-### Tests
-
-```bash
-python tests/test_gae_plus.py      # 27 checks: objective, bounds coverage, selection, options
-python tests/test_gae_options.py   # GAE_SUBSPACE_MATRIX option
-```
-
-### Known issues (not fixed)
-
-- HaluEval: only 175 evaluation prompts are produced (sampling of 1.2× n before split filtering), and the `dialogue_history` field is not read, so only QA samples are used.
-
 ## 📊 Main results
 
 Representative **GPT-2 Small transcoder** results reported in the paper are shown below.
@@ -234,8 +136,6 @@ See the [paper](https://arxiv.org/abs/2605.21849) for the full SAE and transcode
 | File / directory | Role |
 |---|---|
 | [`gae.py`](gae.py) | GAE alignment, decoder refitting, and dictionary utilities |
-| [`gae_plus.py`](gae_plus.py) | GAE+ objective, bounds, and `eta` selection |
-| [`gae_plus_probe.py`](gae_plus_probe.py), [`gae_plus_bounds_grid.py`](gae_plus_bounds_grid.py), [`gae_plus_split_check.py`](gae_plus_split_check.py) | GAE+ experiment drivers |
 | [`config.py`](config.py) | Model settings and adaptation defaults |
 | [`utils.py`](utils.py) | Explainer wrappers, model loading, and activation utilities |
 | [`run_experiment.py`](run_experiment.py) | Integration with OOD datasets and evaluation |
