@@ -11,16 +11,17 @@ Algorithm (entry point: gae_plus_select):
   2. On A, run GAE: A1 = Step 1 (Eqs. 5-6), A2 = Step 2 (Eqs. 8-11, lambda_id = 0); A0 = original.
   3. On B (held out), estimate the change in reconstruction error and its uncertainty:
      mode "elementwise" (default): per-entry bounds on H, g in the (A1 - A0, A2 - A0) basis;
-     mode "matrix": free eta, operator-norm bound on the 2x2 H (step basis).
+     mode "matrix": free eta, operator-norm bound on the 2x2 H (step basis);
+     mode "nosplit": original plan, uniform bounds (a_N, b_N) with penalty in ||A_plus - A0||_F.
      bound "best" (default): min of Chebyshev and Bernstein-type radii; "bernstein": Tropp / Pinelis only.
   4. eta = argmin over the grid of (sample error change + uncertainty penalty); return A_plus.
 Steps 1-2 (data, GAE) live in gae_plus_probe.build_candidates / gae_plus_bounds_grid.py.
 
 Original plan (methodology draft Sec. 3-4; no sample split, uniform bounds, K = ||D||_F^2):
-  gae_plus_bounds_grid.py --split off, i.e. eta_objective_terms -> compute_bounds(method=...) ->
-  select_eta(H, g, K_D, a_N, b_N); method "A" = Sec. 4.2 with c from Tropp's matrix Bernstein,
-  "chebyshev" = c = sqrt(2 / (N delta)), "B" = Sec. 4.2 variance-based follow-up.
-  gae_plus_select (split on) is not part of the original plan.
+  gae_plus_select(mode="nosplit", bound="chebyshev") with Z, Y = the samples A1, A2 were built on,
+  i.e. eta_objective_terms -> compute_bounds(method=...) -> select_eta(H, g, K_D, a_N, b_N)
+  (gae_plus_bounds_grid.py --split off). compute_bounds also has method "A" (Tropp's matrix
+  Bernstein) and "B" (Sec. 4.2 variance-based follow-up).
 """
 import math
 
@@ -190,18 +191,27 @@ def apply_eta(A0, A1, A2, eta1, eta2):
 
 
 def gae_plus_select(Z, Y, A0, A1, A2, mode="elementwise", bound="best", delta=0.05, basis="gae"):
-    """GAE+ selection on held-out samples Z, Y (A1, A2 must be built on other samples).
+    """GAE+ selection of eta on samples Z, Y.
     mode "elementwise": Bonferroni bounds on (H11, H12, H22, g1, g2) in the (A1 - A0, A2 - A0) basis, free eta.
     mode "matrix": free eta, one operator-norm bound on the 2x2 H and one on g (step basis), K = I.
+      elementwise / matrix need held-out Z, Y (A1, A2 built on other samples).
+    mode "nosplit": original plan, a_N >= ||M_hat - M||, b_N >= ||T_hat - T|| (compute_bounds), penalty
+      a_N ||D||_F^2 + 2 b_N ||D||_F with D = A_plus - A0; valid for any D, so Z, Y may be the build samples.
     bound: "best" (min of Chebyshev and Bernstein-type, default) | "bernstein" (Tropp / Pinelis) | "chebyshev".
-    basis (elementwise only): "gae" (A1 - A0, A2 - A0, default) | "step" (A1 - A0, A2 - A1).
+    basis (elementwise only; nosplit's penalty does not depend on it): "gae" (default) | "step".
     Returns eta1, eta2, A_plus."""
-    assert mode in ("elementwise", "matrix"), mode
+    assert mode in ("elementwise", "matrix", "nosplit"), mode
     assert bound in ("best", "bernstein", "chebyshev"), bound
     assert basis in ("gae", "step"), basis
     if mode == "elementwise":
         H, g, rH, rg = elementwise_bounds(Z, Y, A0, A1, A2, delta, bound, basis)
         e1, e2, _ = select_eta_elementwise(H, g, rH, rg, basis)
+        return e1, e2, apply_eta(A0, A1, A2, e1, e2)
+    if mode == "nosplit":
+        H, g, K, _ = eta_objective_terms(Z, Y, A0, A1, A2)  # K_jl = <D_j, D_l>_F
+        E0 = Y - Z @ A0[:, :-1].T - A0[:, -1]
+        a_N, b_N = compute_bounds(Z, E0, delta, bound)
+        e1, e2, _ = select_eta(H, g, K, a_N, b_N)
         return e1, e2, apply_eta(A0, A1, A2, e1, e2)
     H, g, _, _ = eta_objective_terms(Z, Y, A0, A1, A2, basis="step")
     a_N, b_N = split_bounds(Z, Y, A0, A1, A2, delta, bound, basis="step")

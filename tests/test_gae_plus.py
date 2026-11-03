@@ -412,6 +412,14 @@ def test_gae_plus_select_modes_and_defaults():
     a_m, b_m = split_bounds(Z, Y, A0, A1, A2, 0.05, "best", basis="step")
     assert (m1, m2) == select_eta(Hm, gm, torch.eye(2, dtype=DT), a_m, b_m, basis="step")[:2]
     assert torch.allclose(Am, apply_eta(A0, A1, A2, m1, m2))
+    # nosplit: original plan (compute_bounds, K = <D_j, D_l>_F), same as calling the steps by hand
+    for bound in ("chebyshev", "best"):
+        n1, n2, An = gae_plus_select(Z, Y, A0, A1, A2, mode="nosplit", bound=bound)
+        Hn, gn, Kn, _ = eta_objective_terms(Z, Y, A0, A1, A2)
+        a_n, b_n = compute_bounds(Z, Y - Z @ A0[:, :-1].T - A0[:, -1], 0.05, bound)
+        assert (n1, n2) == select_eta(Hn, gn, Kn, a_n, b_n)[:2]
+        assert torch.allclose(An, apply_eta(A0, A1, A2, n1, n2))
+        assert gae_plus_select(Z, Y, A0, A1, A2, mode="nosplit", bound=bound, basis="step")[:2] == (n1, n2)
     # elementwise in the (A1 - A0, A2 - A1) basis
     s1, s2, As = gae_plus_select(Z, Y, A0, A1, A2, basis="step")
     Hs, gs, rHs, rgs = elementwise_bounds(Z, Y, A0, A1, A2, 0.05, "best", "step")
@@ -456,7 +464,7 @@ def test_bernstein_option_is_pure_tropp_pinelis_and_best_is_min():
             ref = torch.tensor([bernstein_radius(2 * x / n, x * x / n, 2, delta / 5) for x in s], dtype=DT)
             assert torch.allclose(torch.cat([rHb.flatten(), rgb]), ref)
     Z, Y, A0, A1, A2 = _random_problem(N=60)
-    for mode in ("elementwise", "matrix"):
+    for mode in ("elementwise", "matrix", "nosplit"):
         gae_plus_select(Z, Y, A0, A1, A2, mode=mode, bound="bernstein")
 
 

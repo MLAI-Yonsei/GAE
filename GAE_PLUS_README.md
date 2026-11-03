@@ -47,7 +47,7 @@ W_plus, b_plus = A_plus[:, :-1], A_plus[:, -1]
 
 | # | 항목 | 기존 (원래 계획서) | 변경 (현재 기본값) | 기존으로 되돌리는 법 |
 |---|---|---|---|---|
-| 1 | 표본 사용 | 같은 표본으로 Step 1·2를 만들고 η도 결정 | 절반 A로 Step 1·2, 나머지 절반 B로 η 결정 | 원래 계획서 함수 사용: `eta_objective_terms` → `compute_bounds(method="chebyshev")` → `select_eta` |
+| 1 | 표본 사용 | 같은 표본으로 Step 1·2를 만들고 η도 결정 | 절반 A로 Step 1·2, 나머지 절반 B로 η 결정 | `mode="nosplit"` (Z, Y에 A1·A2를 만든 표본을 그대로 넣음) |
 | 2 | 상한 부등식 | Chebyshev | Chebyshev와 Bernstein 중 작은 값 | `bound="chebyshev"` |
 | 3 | 계수 기준 | Step 1, Step 2 각각의 변화량 `(A1−A0, A2−A1)`의 계수 | Step 1, GAE 전체의 변화량 `(A1−A0, A2−A0)`의 계수 (= η) | `basis="step"` (상한만 step 기준으로 계산) |
 | 4 | 상한 개수 | 2개: ‖Ĥ − H‖ 하나(a_N), ‖ĝ − g‖ 하나(b_N) | 5개: H의 숫자 3개 + g의 숫자 2개에 각각 하나씩 (δ/5씩) | `mode="matrix"` |
@@ -58,7 +58,8 @@ W_plus, b_plus = A_plus[:, :-1], A_plus[:, -1]
 
 - `basis`는 3번 "계수 기준"의 코드 인자 이름이며, `mode="elementwise"`일 때만 적용됩니다.
 - `mode="matrix"`는 항상 `(A1−A0, A2−A1)` 기준이므로, 4번을 기존으로 돌리면 3번도 기존이 됩니다.
-- 1번을 기존으로 돌리면 원래 계획서의 함수들을 사용하고, 여기서는 2번(부등식)만 고를 수 있습니다.
+- `mode="nosplit"`(1번 기존)은 원래 계획서의 상한을 쓰므로 `basis`는 영향이 없고, `bound`(2번)만 고를 수 있습니다.
+- 1번과 4번은 둘 다 `mode`로 고르므로 함께 지정할 수 없습니다. `"nosplit"`은 1·3·4번이 모두 원래 계획서 방식이고, `"matrix"`는 표본 분할을 쓰면서 3·4번만 기존입니다.
 - 어떤 옵션을 쓰든 함수가 돌려주는 η는 항상 위의 새 정의(섞는 비율)입니다.
 
 ---
@@ -71,15 +72,22 @@ W_plus, b_plus = A_plus[:, :-1], A_plus[:, -1]
 gae_plus_select(Z, Y, A0, A1, A2, mode="elementwise", bound="best", delta=0.05, basis="gae")
 ```
 
-| 인자 | 기본값 | 고를 수 있는 값 | 하는 일 |
-|---|---|---|---|
-| `Z` | (필수) | `[n, k]` float64 | 절반 B의 feature (`encode`의 첫 번째 출력) |
-| `Y` | (필수) | `[n, d]` float64 | 절반 B의 target (transcoder면 MLP 출력) |
-| `A0, A1, A2` | (필수) | `[d, k+1]` float64 | 원래 / Step 1 이후 / GAE decoder. **절반 A로 만든 것**이어야 함 |
-| `mode` | `"elementwise"` | `"elementwise"`, `"matrix"` | 상한을 몇 개로 나눌지 |
-| `bound` | `"best"` | `"best"`, `"bernstein"`, `"chebyshev"` | 상한에 쓸 부등식 |
-| `delta` | `0.05` | 0 < δ < 1 | 전체 실패 확률. 작을수록 상한이 커지고 η가 0 쪽으로 감 |
-| `basis` | `"gae"` | `"gae"`, `"step"` | 상한을 붙일 계수 기준. `mode="elementwise"`일 때만 적용 |
+| 인자 | 하는 일 | 고를 수 있는 값 | **기본값 (현재)** | **원래 계획서** |
+|---|---|---|---|---|
+| `Z`, `Y` | η를 정할 때 쓰는 feature `[n, k]` / target `[n, d]` (float64) | — | 절반 B | 전체 표본 (A1·A2를 만든 표본과 같음) |
+| `A0, A1, A2` | 원래 / Step 1 이후 / GAE decoder `[d, k+1]` (float64) | — | 절반 A로 생성 | 전체 표본으로 생성 |
+| `mode` | 상한을 어디에 몇 개 붙일지 | `"elementwise"`, `"matrix"`, `"nosplit"` | `"elementwise"` (H, g의 숫자 5개에 하나씩) | `"nosplit"` (데이터 통계 M = mean z̄z̄ᵀ, T = mean e₀z̄ᵀ에 2개 → 벌점 a_N‖A₊−A0‖²_F + 2b_N‖A₊−A0‖_F) |
+| `bound` | 상한에 쓸 부등식 | `"best"`, `"bernstein"`, `"chebyshev"` | `"best"` | `"chebyshev"` |
+| `delta` | 전체 실패 확률. 작을수록 상한이 커지고 η가 0 쪽으로 감 | 0 < δ < 1 | `0.05` | `0.05` |
+| `basis` | 상한을 붙일 계수 기준 (`mode="elementwise"`일 때만 적용) | `"gae"`, `"step"` | `"gae"` | 영향 없음 (`"nosplit"`은 ‖A₊−A0‖_F 기준) |
+
+```python
+# 기본값
+gae_plus_select(Z_B, Y_B, A0, A1, A2)          # A0~A2는 절반 A로 생성
+
+# 원래 계획서 (표본 분할 없음)
+gae_plus_select(Z, Y, A0, A1, A2, mode="nosplit", bound="chebyshev")   # Z, Y, A0~A2 모두 전체 표본
+```
 
 돌려주는 값은 `(eta1, eta2, A_plus)`입니다. `A_plus[:, :-1]`이 decoder, `A_plus[:, -1]`이 bias입니다.
 
