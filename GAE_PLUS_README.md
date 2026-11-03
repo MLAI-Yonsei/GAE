@@ -189,7 +189,82 @@ A0·A1·A2 생성과 η 선택에 OOD 표본 2,000개를 쓰고(분할 시 1,000
 
 ---
 
-## 5. 환경과 데이터 준비
+## 5. 옵션과 숨은 설정 전체 정리
+
+### 5-1. `gae_plus_select`의 인자
+
+```python
+gae_plus_select(Z, Y, A0, A1, A2, mode="elementwise", bound="best", delta=0.05, basis="gae")
+```
+
+| 인자 | 기본값 | 고를 수 있는 값 | 하는 일 |
+|---|---|---|---|
+| `Z` | (필수) | `[n, k]` float64 | 절반 B의 feature (`encode`의 첫 번째 출력) |
+| `Y` | (필수) | `[n, d]` float64 | 절반 B의 target (transcoder면 MLP 출력) |
+| `A0, A1, A2` | (필수) | `[d, k+1]` float64 | 원래 / Step 1 이후 / GAE decoder. **절반 A로 만든 것**이어야 함 |
+| `mode` | `"elementwise"` | `"elementwise"`, `"matrix"` | 상한을 몇 개로 나눌지 (§3-4) |
+| `bound` | `"best"` | `"best"`, `"bernstein"`, `"chebyshev"` | 상한에 쓸 부등식 (§3-2) |
+| `delta` | `0.05` | 0 < δ < 1 | 전체 실패 확률. 작을수록 상한이 커지고 η가 0 쪽으로 감 |
+| `basis` | `"gae"` | `"gae"`, `"step"` | 상한을 붙일 계수 기준 (§3-3). `mode="elementwise"`일 때만 적용 |
+
+돌려주는 값은 `(eta1, eta2, A_plus)`입니다. `A_plus[:, :-1]`이 decoder, `A_plus[:, -1]`이 bias입니다.
+
+### 5-2. 각 mode가 실제로 최소화하는 식
+
+`y`는 `basis`에 따른 계수입니다. gae 기준이면 `y = (η₁, η₂)`, step 기준이면 `y = (η₁ + η₂, η₂)`입니다.
+
+| mode | 최소화하는 J | δ 나누기 |
+|---|---|---|
+| `elementwise` | `yᵀĤy − 2ĝᵀy + Σⱼₗ abs(yⱼ)·abs(yₗ)·rHⱼₗ + 2 Σⱼ abs(yⱼ)·rgⱼ` | 숫자 5개(H₁₁, H₁₂, H₂₂, g₁, g₂)에 δ/5씩 |
+| `matrix` | `yᵀĤy − 2ĝᵀy + a_N‖y‖² + 2 b_N‖y‖` (step 기준 고정) | ‖Ĥ − H‖에 δ/2, ‖ĝ − g‖에 δ/2 |
+| 원래 계획서 (§3-1) | `xᵀĤx − 2ĝᵀx + a_N·‖D‖²_F + 2 b_N·‖D‖_F`, D = A₊ − A0 | a_N, b_N에 δ/2씩 |
+
+`yᵀĤy − 2ĝᵀy`는 절반 B에서 잰 "재구성 오차가 원래보다 얼마나 변하는지"이고, 나머지 항은 그 추정의 불확실성 벌점입니다.
+
+### 5-3. 코드 안에 고정된 값 (인자로 바꿀 수 없음)
+
+| 항목 | 값 | 위치 | 의미 |
+|---|---|---|---|
+| η 탐색 간격 | 0.01 | `select_eta`, `select_eta_elementwise`의 `step` | η₁ + η₂ ≤ 1을 만족하는 5,151개 점을 모두 계산. `gae_plus_select`에는 이 인자가 없음 |
+| 동점 처리 | 앞 점 우선 | `torch.argmin` | J가 같으면 η₁이 작은 쪽, 그다음 η₂가 작은 쪽을 고름 |
+| 범위 s, L | 관측 최댓값 | `elementwise_bounds`, `split_bounds`, `compute_bounds` | 예: s = maxᵢ \|H 항목ᵢ\|. 진짜 상한이 아니라 표본에서 본 최댓값이라 **엄밀한 보장은 아님** |
+| elementwise의 Bernstein | 스칼라 Bernstein (차원 2) | `elementwise_bounds` | 숫자 하나마다 `t*(2s/n, s²/n, 2, δ/5)` |
+| matrix의 Bernstein | H: Tropp 2×2 (차원 4), g: Pinelis (차원 2) | `split_bounds` | L_H = maxᵢ tr Qᵢ, L_g = maxᵢ ‖qᵢ‖ |
+| `best` | 항목마다 min(Chebyshev, Bernstein) | 세 함수 공통 | 상한 하나하나에 대해 더 작은 쪽을 씀 |
+| 계산 정밀도 | float64 | `gae_plus_probe.F64` | Z, Y, A를 모두 float64로 맞춰서 넣어야 함 |
+
+### 5-4. A1, A2를 만들 때 쓰는 설정 (`build_candidates`, 환경변수)
+
+`build_candidates`는 `run_experiment.evaluate_baseline_gae(..., decoder_mode="affine")`를 그대로 불러 A1, A2를 만듭니다.
+
+| 설정 | GAE+ 스크립트 값 | 코드 기본값 | 의미 |
+|---|---|---|---|
+| `r` (인자) | 32 | (필수) | Step 1의 OOD 부분공간 차원 |
+| `GAE_SUBSPACE_MATRIX` | `centered` | `centered` | Step 1에서 공분산(`centered`) / 2차 모멘트(`second_moment`) 중 무엇을 쓸지 |
+| `GAE_STEP1_MATCH_NORMS` | `1` | `1` | Step 1 회전 뒤 decoder 열 크기를 원래대로 맞출지 |
+| `GAE_AC_LAMBDA_GEOM` | 0.1 | 0.1 | Step 2: OOD 부분공간 밖으로 나가는 decoder에 주는 벌점 (λ_geom) |
+| `GAE_AC_LAMBDA_GAE` | 0.2 | 0.2 | Step 2: Step 1 decoder에서 멀어지는 것에 주는 벌점 (논문 λ_pres) |
+| `GAE_AC_LAMBDA_ID` | **0** | 0.05 | Step 2: 원래 decoder에서 멀어지는 것에 주는 벌점. GAE+는 η로 원래 decoder와 섞으므로 0 |
+| `GAE_AC_FIT_SAMPLES` | 2048 | 2048 | Step 2에 쓸 최대 표본 수. 절반 A가 이보다 적으면 절반 A 전부를 씀 (지금은 1,000개) |
+| `GAE_AC_DECODER_MIX_PRIOR` | 0 | 0 | Step 2 결과를 prior와 섞는 비율. GAE+와 역할이 겹치므로 0 |
+| `GAE_AC_DECODER_MIX_ORIG`, `GAE_AC_BIAS_MIX_ORIG` | 0 (기본값) | 0 | Step 2 결과를 원래 decoder·bias와 섞는 비율. GAE+와 역할이 겹치므로 **0으로 둘 것** |
+| `GAE_AC_MATCH_COLUMN_NORMS` | 0 (기본값) | 0 | Step 2 결과의 열 크기를 원래대로 맞출지 |
+| `GAE_AC_SOLVER_DEVICE` | `cpu` (기본값) | `cpu` | Step 2 연립방정식을 푸는 장치 |
+
+### 5-5. 데이터와 분할 설정 (`bounds_grid.sh`, `gae_plus_probe.load_activations`)
+
+| 설정 | 값 | 의미 |
+|---|---|---|
+| 모델 / 위치 | GPT-2 Small, layer 8 transcoder (`ln2.hook_normalized` → `hook_mlp_out`) | 논문과 같은 설정 |
+| OOD 데이터 | HaluEval train split, prompt 마지막 토큰 위치(`position=-1`) | prompt 하나당 활성값 1개 |
+| `ood_token_budget` | 2,000,000 토큰 | OOD prompt를 이 토큰 수까지 뽑음 |
+| `N_COV` | 3,000 (= `N_FIT` + `N_TEST`) | 모으는 OOD 활성값 수. ID 활성값도 같은 수만큼 (OpenWebText shard 79) |
+| `N_FIT` / `N_TEST` | 2,000 / 1,000 | η를 정하는 데 쓰는 표본 / 성능만 재는 표본 |
+| 분할 비율 | `N_FIT`의 앞 절반 → 절반 A, 뒤 절반 → 절반 B | 1,000 / 1,000 |
+| 섞는 순서 | `torch.randperm`, seed = `Config.SEED` (2026) | 같은 seed면 같은 분할 |
+| `--split off` | 절반 없이 `N_FIT` 전체로 A1·A2 생성과 η 선택 | 원래 계획서 경로 |
+
+## 6. 환경과 데이터 준비
 
 스크립트마다 맨 위에 설정이 있고, 경로는 환경변수(`DATA_ROOT`, `CACHE_ROOT`)로 바꿀 수 있습니다.
 각 스크립트는 환경을 직접 만들고(`uv venv --python 3.10 && uv pip sync requirements.lock`), 결과 폴더 `results/gae_plus/<run>/`에 `run_info.txt`, `uncommitted.diff`, 스크립트 사본을 남깁니다.
@@ -200,7 +275,7 @@ bash scripts/train_id/train_gpt2_transcoder.sh [GPU]  # GPT-2 Small transcoder �
 bash scripts/gae_plus/build_edgar_prompts.sh          # Edgar prompt 생성, revision 고정
 ```
 
-## 6. 실험 스크립트 (`scripts/gae_plus/`, 실행: `bash <스크립트> [GPU]`)
+## 7. 실험 스크립트 (`scripts/gae_plus/`, 실행: `bash <스크립트> [GPU]`)
 
 | 스크립트 | 하는 일 |
 |---|---|
@@ -212,7 +287,7 @@ bash scripts/gae_plus/build_edgar_prompts.sh          # Edgar prompt 생성, rev
 | `reproduce_gpt2_edgar_paper.sh` | Edgar, 논문 설정 (`second_moment`, λ_id = 0) |
 | `reproduce_gpt2_edgar_paper_nonorm.sh` | 위와 같고, Step 1의 열 크기 맞춤만 끔 |
 
-## 7. 새로 추가한 환경변수 (기본값 = 기존 코드 동작)
+## 8. 새로 추가한 환경변수 (기본값 = 기존 코드 동작)
 
 | 변수 | 기본값 | 바꾸면 |
 |---|---|---|
@@ -222,14 +297,14 @@ bash scripts/gae_plus/build_edgar_prompts.sh          # Edgar prompt 생성, rev
 | `DOMAIN_EVAL_DISJOINT` | `0` | `1`: 평가 prompt를 GAE 학습 prompt와 겹치지 않게 뽑음 |
 | `GAE_ID_DATA_FILES` | 없음 (Hub에서 다운로드) | 로컬 parquet 파일 경로 (쉼표로 구분) |
 
-## 8. 테스트
+## 9. 테스트
 
 ```bash
 python tests/test_gae_plus.py      # 27개: 목적함수, 상한이 실제로 덮는지, η 선택, 옵션
 python tests/test_gae_options.py   # GAE_SUBSPACE_MATRIX 옵션
 ```
 
-## 9. 알려진 문제 (고치지 않음)
+## 10. 알려진 문제 (고치지 않음)
 
 - HaluEval 평가 prompt가 175개만 만들어집니다 (split 필터링 전에 1.2×n개만 뽑음).
 - HaluEval의 `dialogue_history` 필드를 읽지 않아 QA 표본만 사용됩니다.
