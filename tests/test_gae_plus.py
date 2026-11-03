@@ -121,7 +121,7 @@ def test_bounds_A_match_formula():
     N, k, d, delta = 40, 6, 3, 0.05
     Z = torch.relu(torch.randn(N, k, dtype=DT))
     E0 = torch.randn(N, d, dtype=DT)
-    a_N, b_N = compute_bounds(Z, E0, delta)
+    a_N, b_N = compute_bounds(Z, E0, delta, method="A")
     B = ((Z ** 2).sum(dim=1) + 1).max().item()   # max ||z_bar||^2
     E = E0.norm(dim=1).max().item()              # max ||e0||
 
@@ -136,10 +136,10 @@ def test_bounds_A_match_formula():
 def test_bounds_A_scaling_and_sample_size():
     Z = torch.relu(torch.randn(30, 5, dtype=DT))
     E0 = torch.randn(30, 4, dtype=DT)
-    a1, b1 = compute_bounds(Z, E0)
-    a2, b2 = compute_bounds(Z, 3 * E0)
+    a1, b1 = compute_bounds(Z, E0, method="A")
+    a2, b2 = compute_bounds(Z, 3 * E0, method="A")
     assert abs(a2 - a1) < 1e-12 and abs(b2 - 3 * b1) < 1e-9   # a_N ignores E0, b_N linear in it
-    a4, b4 = compute_bounds(Z.repeat(4, 1), E0.repeat(4, 1))  # same ranges, 4x samples
+    a4, b4 = compute_bounds(Z.repeat(4, 1), E0.repeat(4, 1), method="A")  # same ranges, 4x samples
     assert a4 < a1 and b4 < b1
 
 
@@ -156,7 +156,7 @@ def test_bounds_A_cover_true_error():
     for _ in range(trials):
         idx = torch.randint(0, m, (n,), generator=gen)
         Z, E0, Zb = pop_z[idx], pop_e[idx], pop_zb[idx]
-        a_N, b_N = compute_bounds(Z, E0, delta)
+        a_N, b_N = compute_bounds(Z, E0, delta, method="A")
         err_M = torch.linalg.matrix_norm(Zb.T @ Zb / n - M, ord=2).item()
         err_T = (E0.T @ Zb / n - T).norm().item()
         fails += (err_M > a_N) or (err_T > b_N)
@@ -257,6 +257,7 @@ def test_best_is_the_smaller_valid_radius():
         E = E0.norm(dim=1).max().item()
         b_pin = bernstein_radius(2 * E * math.sqrt(B) / N, E * E * B / N, 2, 0.025)
         assert abs(a_b - min(a_c, a_A)) < 1e-12 and abs(b_b - min(b_c, b_pin)) < 1e-12
+        assert compute_bounds(Z, E0) == (a_b, b_b)                  # default method is "best"
 
 
 def _explicit_split_ranges(Z, Y, A0, A1, A2):
@@ -423,6 +424,39 @@ def test_gae_plus_select_modes_and_defaults():
         except AssertionError:
             continue
         raise AssertionError(f"accepted {kw}")
+
+
+def test_bernstein_option_is_pure_tropp_pinelis_and_best_is_min():
+    delta = 0.05
+    for N in (8, 40, 2000):                                       # split off
+        Z = torch.relu(torch.randn(N, 5, dtype=DT))
+        E0 = torch.randn(N, 4, dtype=DT)
+        B = ((Z ** 2).sum(dim=1) + 1).max().item()
+        E = E0.norm(dim=1).max().item()
+        a_t = bernstein_radius(2 * B / N, B * B / N, 2 * 6, delta / 2)             # Tropp ambient
+        b_p = bernstein_radius(2 * E * math.sqrt(B) / N, E * E * B / N, 2, delta / 2)  # Pinelis
+        assert compute_bounds(Z, E0, delta, method="bernstein") == (a_t, b_p)
+        a_c, b_c = compute_bounds(Z, E0, delta, method="chebyshev")
+        assert compute_bounds(Z, E0, delta, method="best") == (min(a_c, a_t), min(b_c, b_p))
+    for n in (8, 30, 1000):                                       # split on: 2x2 and element-wise
+        Z, Y, A0, A1, A2 = _random_problem(N=n)
+        a_b, b_b = split_bounds(Z, Y, A0, A1, A2, delta, "bernstein")
+        a_c, b_c = split_bounds(Z, Y, A0, A1, A2, delta, "chebyshev")
+        assert split_bounds(Z, Y, A0, A1, A2, delta, "best") == (min(a_c, a_b), min(b_c, b_b))
+        L_H, L_g = _explicit_split_ranges(Z, Y, A0, A1, A2)
+        assert abs(a_b - bernstein_radius(2 * L_H / n, L_H ** 2 / n, 4, delta / 2)) < 1e-9
+        assert abs(b_b - bernstein_radius(2 * L_g / n, L_g ** 2 / n, 2, delta / 2)) < 1e-9
+        for basis in ("step", "gae"):
+            _, _, rHb, rgb = elementwise_bounds(Z, Y, A0, A1, A2, delta, "bernstein", basis)
+            _, _, rHc, rgc = elementwise_bounds(Z, Y, A0, A1, A2, delta, "chebyshev", basis)
+            _, _, rHm, rgm = elementwise_bounds(Z, Y, A0, A1, A2, delta, "best", basis)
+            assert torch.equal(rHm, torch.minimum(rHb, rHc)) and torch.equal(rgm, torch.minimum(rgb, rgc))
+            s = _explicit_entries(Z, Y, A0, A1, A2, basis).abs().amax(0).tolist()
+            ref = torch.tensor([bernstein_radius(2 * x / n, x * x / n, 2, delta / 5) for x in s], dtype=DT)
+            assert torch.allclose(torch.cat([rHb.flatten(), rgb]), ref)
+    Z, Y, A0, A1, A2 = _random_problem(N=60)
+    for mode in ("elementwise", "tie", "matrix"):
+        gae_plus_select(Z, Y, A0, A1, A2, mode=mode, bound="bernstein")
 
 
 if __name__ == "__main__":

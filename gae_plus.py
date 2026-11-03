@@ -10,7 +10,7 @@ Algorithm (entry point: gae_plus_select):
      mode "elementwise" (default): per-entry bounds on H, g in the (A1 - A0, A2 - A0) basis;
      mode "tie": eta1 = eta2, bounds on the single A2 - A0 direction;
      mode "matrix": free eta, operator-norm bound on the 2x2 H (step basis).
-     bound "best" (default): min of Chebyshev and Bernstein-type radii (Tropp / Pinelis).
+     bound "best" (default): min of Chebyshev and Bernstein-type radii; "bernstein": Tropp / Pinelis only.
   4. eta = argmin over the grid of (sample error change + uncertainty penalty); return A_plus.
 Steps 1-2 (data, GAE) live in gae_plus_probe.build_candidates / gae_plus_bounds_grid.py.
 
@@ -80,23 +80,26 @@ def paired_variance_norms(Z, E0, B, R):
     return vM, vT
 
 
-def compute_bounds(Z, E0, delta=0.05, method="A"):
+def compute_bounds(Z, E0, delta=0.05, method="best"):
     """Split off: a_N >= ||M_hat - M||_op, b_N >= ||T_hat - T||_F with observed ranges
-    (no guarantee for the ranges). method: "A" | "B" | "chebyshev" | "best"."""
+    (no guarantee for the ranges). method: "A" | "B" | "chebyshev" | "bernstein" | "best".
+    "bernstein": a_N Tropp ambient, b_N Pinelis; "best": min(chebyshev, bernstein) per bound."""
     N, k = Z.shape
     d = E0.shape[1]
     B = ((Z ** 2).sum(dim=1) + 1).max().item()             # max_i ||z_bar_i||^2 (observed)
     E = E0.norm(dim=1).max().item()                        # max_i ||e0_i|| (observed)
-    assert method in ("A", "B", "chebyshev", "best"), method
+    assert method in ("A", "B", "chebyshev", "bernstein", "best"), method
     a_cheb = chebyshev_radius(B, N, delta / 2)             # E||z z^T - M||_F^2 <= B^2
     b_cheb = chebyshev_radius(E * math.sqrt(B), N, delta / 2)  # E||e z^T - T||_F^2 <= E^2 B
     if method == "chebyshev":
         return a_cheb, b_cheb
-    if method in ("A", "best"):                            # Tropp (2015) Thm 1.6.2
+    if method in ("A", "bernstein", "best"):               # Tropp (2015) Thm 1.6.2
         a_N = bernstein_radius(2 * B / N, B * B / N, 2 * (k + 1), delta / 2)
         b_N = bernstein_radius(2 * E * math.sqrt(B) / N, E * E * B / N, d * (k + 1) + 1, delta / 2)
-    if method == "best":                                   # b_N: Pinelis, dimension-free (dim = 2)
+    if method in ("bernstein", "best"):                    # b_N: Pinelis, dimension-free (dim = 2)
         b_pin = bernstein_radius(2 * E * math.sqrt(B) / N, E * E * B / N, 2, delta / 2)
+        if method == "bernstein":
+            return a_N, b_pin
         return min(a_cheb, a_N), min(b_cheb, b_pin)
     if method == "B":                                      # Wang & Ramdas Thm 3.1
         R = E * math.sqrt(B)                               # range of the dilation eigenvalues
@@ -109,8 +112,9 @@ def compute_bounds(Z, E0, delta=0.05, method="A"):
 
 def split_bounds(Z, Y, A0, A1, A2, delta=0.05, method="best"):
     """Split on (Z, Y = held-out samples, candidates built elsewhere; use K = I):
-    a_N >= ||H_hat - H||_op (2x2), b_N >= ||g_hat - g||_2. method: "chebyshev" | "best"."""
-    assert method in ("chebyshev", "best"), method
+    a_N >= ||H_hat - H||_op (2x2), b_N >= ||g_hat - g||_2.
+    method: "chebyshev" | "bernstein" (Tropp 2x2 / Pinelis) | "best" (min of the two)."""
+    assert method in ("chebyshev", "bernstein", "best"), method
     _, E0, P = _per_sample(Z, Y, A0, A1, A2)
     n = Z.shape[0]
     L_H = (P ** 2).sum(dim=(0, 2)).max().item()            # max_i tr Q_i >= ||Q_i||_op, ||Q_i||_F
@@ -121,21 +125,24 @@ def split_bounds(Z, Y, A0, A1, A2, delta=0.05, method="best"):
         return a_cheb, b_cheb
     a_bern = bernstein_radius(2 * L_H / n, L_H * L_H / n, 4, delta / 2)  # Tropp Thm 1.6.2, 2x2
     b_pin = bernstein_radius(2 * L_g / n, L_g * L_g / n, 2, delta / 2)   # Pinelis, dimension-free
+    if method == "bernstein":
+        return a_bern, b_pin
     return min(a_cheb, a_bern), min(b_cheb, b_pin)
 
 
 def elementwise_bounds(Z, Y, A0, A1, A2, delta=0.05, method="best", basis="step"):
     """Split on, Bonferroni over the 5 numbers (H11, H12, H22, g1, g2), delta/5 each, in `basis`.
+    method: "chebyshev" | "bernstein" (scalar Bernstein) | "best" (min of the two).
     Returns H, g (held-out means) and per-entry radii rH [2, 2], rg [2] (observed ranges)."""
-    assert method in ("chebyshev", "best"), method
+    assert method in ("chebyshev", "bernstein", "best"), method
     _, E0, P = _per_sample(Z, Y, A0, A1, A2, basis)
     n, dl = Z.shape[0], delta / 5
     Q = torch.einsum('jnd,lnd->njl', P, P)                 # per-sample 2x2
     q = torch.einsum('nd,jnd->nj', E0, P)                  # per-sample 2
     s = torch.cat([Q.abs().amax(0).flatten(), q.abs().amax(0)]).tolist()  # max_i |entry| (observed)
-    r = [chebyshev_radius(x, n, dl) for x in s]
-    if method == "best":                                   # scalar Bernstein (d1 + d2 = 2)
-        r = [min(c, bernstein_radius(2 * x / n, x * x / n, 2, dl)) for c, x in zip(r, s)]
+    r_cheb = [chebyshev_radius(x, n, dl) for x in s]
+    r_bern = [bernstein_radius(2 * x / n, x * x / n, 2, dl) for x in s]  # scalar Bernstein (d1 + d2 = 2)
+    r = {"chebyshev": r_cheb, "bernstein": r_bern, "best": [min(c, b) for c, b in zip(r_cheb, r_bern)]}[method]
     rH, rg = torch.tensor(r[:4], dtype=Q.dtype, device=Q.device).view(2, 2), torch.tensor(r[4:], dtype=Q.dtype, device=Q.device)
     return Q.mean(0), q.mean(0), rH, rg
 
@@ -179,9 +186,10 @@ def gae_plus_select(Z, Y, A0, A1, A2, mode="elementwise", bound="best", delta=0.
     mode "elementwise": Bonferroni bounds on (H11, H12, H22, g1, g2) in the (A1 - A0, A2 - A0) basis, free eta.
     mode "tie": eta1 = eta2 = t (A_plus = A0 + t (A2 - A0)), 2x2 bounds with K = diag(0, 1).
     mode "matrix": free eta, one operator-norm bound on the 2x2 H and one on g (step basis), K = I.
-    bound: "best" (min of Chebyshev and Bernstein-type) | "chebyshev". Returns eta1, eta2, A_plus."""
+    bound: "best" (min of Chebyshev and Bernstein-type, default) | "bernstein" (Tropp / Pinelis) | "chebyshev".
+    Returns eta1, eta2, A_plus."""
     assert mode in ("elementwise", "tie", "matrix"), mode
-    assert bound in ("best", "chebyshev"), bound
+    assert bound in ("best", "bernstein", "chebyshev"), bound
     if mode == "elementwise":
         H, g, rH, rg = elementwise_bounds(Z, Y, A0, A1, A2, delta, bound, basis="gae")
         e1, e2, _ = select_eta_elementwise(H, g, rH, rg, basis="gae")
