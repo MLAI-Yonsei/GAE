@@ -1,30 +1,15 @@
-__pycache__
-Toy1_result
-Toy2_result
-transformer_lens_docs_17k.txt
-checkpoints
-results/
-SAEBoost-main/
-transcoder_circuits-master/
-wandb
-
-# Local environment / runtime state
-logs
-.claude/hooks/
-.claude/projects/
-.claude/scheduled_tasks.lock
-.claude/skills/
-.claude/slack_threads.json
-.claude/worktrees/
-.codex/
-reference/
-
-# User-local data and secrets (added 2026-05-19, public release)
-data/
-.env
-*.pt
-
-# Common Python development artifacts
-*.pyc
 .venv/
-*.egg-info/
+envs/
+.cache/
+__pycache__/
+*.py[cod]
+.env
+.secrets/
+artifacts/
+checkpoints/
+data/
+results/
+logs/
+*.pt
+*.pth
+*.safetensors
