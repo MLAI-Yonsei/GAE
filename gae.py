@@ -117,6 +117,43 @@ def select_rank_for_gae(
     return r, info
 
 
+def shrink_covariance(Hc: torch.Tensor, B: Optional[torch.Tensor] = None, H_id: Optional[torch.Tensor] = None):
+    """
+    Ledoit-Wolf-style shrinkage of the centered OOD covariance S toward a reference covariance T.
+
+    T = a * B B^T built from the decoder dictionary (a = <S, BB^T> / ||BB^T||_F^2), or, when H_id is given,
+    the covariance of ID activations. The intensity is rho = min(1, noise(S) / ||S - T||_F^2) with
+    noise(S) = (sum_i ||x_i||^4 / n - ||S||_F^2) / n, so few samples or a nearby reference give a larger rho.
+    Returns ((1 - rho) S + rho T, rho).
+    """
+    X = Hc.double()
+    n = X.shape[0]
+    S = X.T @ X / n
+    if H_id is not None:
+        Xi = H_id.to(X.device).double()
+        Xi = Xi - Xi.mean(dim=0, keepdim=True)
+        T = Xi.T @ Xi / Xi.shape[0]
+    else:
+        D = B.double() @ B.double().T
+        T = D * ((S * D).sum() / (D * D).sum())
+    noise = (X.pow(2).sum(dim=1).pow(2).sum() / n - S.pow(2).sum()) / n
+    rho = float(torch.clamp(noise / (S - T).pow(2).sum(), 0.0, 1.0))
+    return ((1.0 - rho) * S + rho * T).to(Hc.dtype), rho
+
+
+def ledoit_wolf_ridge(Zc: torch.Tensor) -> float:
+    """
+    Ridge strength (sum-loss units) from the Ledoit-Wolf intensity of the feature covariance with target mu*I:
+    lam = n * rho * mu / (1 - rho). Zc is the centered feature matrix [N, k]; only its N x N Gram is formed.
+    """
+    n, k = Zc.shape
+    G = (Zc @ Zc.T).double()
+    S2 = float(G.pow(2).sum()) / n ** 2
+    mu = float(G.diagonal().sum()) / n / k
+    rho = min(0.999, ((float(G.diagonal().pow(2).sum()) / n - S2) / n) / (S2 - k * mu * mu))
+    return n * rho * mu / (1.0 - rho)
+
+
 @torch.no_grad()
 def gae_torch(
     B: torch.Tensor,
@@ -126,6 +163,8 @@ def gae_torch(
     Z: Optional[torch.Tensor] = None,
     H_target: Optional[torch.Tensor] = None,
     b_target: Optional[torch.Tensor] = None,
+    shrink: Optional[str] = None,
+    H_id: Optional[torch.Tensor] = None,
 ):
     """
     GAE in PyTorch.
@@ -146,6 +185,9 @@ def gae_torch(
             transcoder, h for SAE). Required when recon_lambda > 0.
         b_target: Optional [d] decoder-output bias (b_dec_out for transcoder,
             b_dec for SAE). Required when recon_lambda > 0.
+        shrink: None (default, plain OOD covariance), "decoder" or "id": shrink the OOD
+            covariance toward a reference before extracting U_ood (see shrink_covariance).
+        H_id: [N_id, d] ID activations in the same space as H. Required when shrink="id".
 
     Returns:
         B_gae: Geometry-adapted dictionary, shape [d, k]
@@ -176,6 +218,11 @@ def gae_torch(
     Hc = H - H.mean(dim=0, keepdim=True)
     denom = max(N - 1, 1)
     C = (Hc.T @ Hc) / denom  # [d, d]
+    shrink_rho = None
+    if shrink is not None:
+        assert shrink in ("decoder", "id"), shrink
+        assert shrink == "decoder" or H_id is not None, "shrink='id' requires H_id"
+        C, shrink_rho = shrink_covariance(Hc, B=B, H_id=H_id if shrink == "id" else None)
     evals, evecs = torch.linalg.eigh(C)  # ascending order
     idx = torch.argsort(evals, descending=True)
     U_ood = evecs[:, idx[:r]]  # [d, r]
@@ -237,6 +284,8 @@ def gae_torch(
         "U_ref": U_ref,      # [d, r]
         "R_align": R_align,  # [r, r]
         "procrustes_convention": "UV^T",
+        "shrink": shrink,
+        "shrink_rho": shrink_rho,
     }
     gae_info.update(recon_info)
     return B_gae, gae_info
@@ -529,6 +578,8 @@ def fit_affine_constrained_decoder(
     match_column_norms: bool = False,
     decoder_mix_prior: float = 0.0,
     ce_weights: Optional[torch.Tensor] = None,
+    fixed_bias: Optional[torch.Tensor] = None,
+    lam_auto: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, dict]:
     """
     Fit an affine decoder h ~= z D^T + b under GAE geometry constraints.
@@ -546,6 +597,10 @@ def fit_affine_constrained_decoder(
 
     The solve is carried out in the OOD basis so the geometry penalty reduces
     to two ridge levels: one inside span(U_ood) and one outside.
+
+    fixed_bias: when given, the bias is kept at this vector and only D is fitted
+        (no centering; targets are H - fixed_bias).
+    lam_auto: replace lam_gae by the Ledoit-Wolf ridge of the feature covariance.
     """
     if fit_samples is not None and int(fit_samples) > 0:
         n_fit = min(int(fit_samples), int(activations_in.shape[0]), int(activations_target.shape[0]))
@@ -578,6 +633,13 @@ def fit_affine_constrained_decoder(
     lam_id = float(lam_id)
     lam_gae = float(lam_gae)
     lam_geom = float(lam_geom)
+    if lam_auto:
+        lam_gae = ledoit_wolf_ridge(Zc)
+    if fixed_bias is not None:
+        mu_z = torch.zeros_like(mu_z)
+        mu_h = fixed_bias.to(device=solver_device, dtype=work_dtype)
+        Zc = Z
+        Hc = H - mu_h
 
     # === SAE GAE Module 1B: degenerate solver toggles (env-controlled) ===
     # All defaults are OFF — preserves current TC behavior. Used for staged

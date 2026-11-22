@@ -81,7 +81,7 @@ class Config:
 
     # Affine Constrained GAE (decoder prior + affine bias).
     GAE_AC_LAMBDA_GEOM = float(os.environ.get("GAE_AC_LAMBDA_GEOM", "1e-1"))
-    GAE_AC_LAMBDA_ID = float(os.environ.get("GAE_AC_LAMBDA_ID", "5e-2"))
+    GAE_AC_LAMBDA_ID = float(os.environ.get("GAE_AC_LAMBDA_ID", "0"))
     GAE_AC_LAMBDA_GAE = float(os.environ.get("GAE_AC_LAMBDA_GAE", "2e-1"))
     GAE_AC_BATCH_SIZE = int(os.environ.get("GAE_AC_BATCH_SIZE", "128"))
     GAE_AC_FIT_SAMPLES = int(os.environ.get("GAE_AC_FIT_SAMPLES", "2048"))
