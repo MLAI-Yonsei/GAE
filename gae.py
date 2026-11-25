@@ -687,13 +687,16 @@ def fit_affine_constrained_decoder(
         ridge_eff = max(float(ridge), 1e-6)
 
         if row_weights is None:
-            # Original batch solve (unchanged)
-            residual = target_q - (Zc @ prior_q.T)  # [N, m]
+            # The prior enters with weight lam_prior while the ridge is
+            # lam_prior (+ lam_geom outside U_ood), as in the weighted branch
+            # below, so the effective prior is (lam_prior / ridge) * prior_q.
+            prior_eff = prior_q * (lam_prior / ridge_eff)
+            residual = target_q - (Zc @ prior_eff.T)  # [N, m]
             ZZt = Zc @ Zc.T
             ZZt = 0.5 * (ZZt + ZZt.T)
             ZZt = ZZt + ridge_eff * torch.eye(ZZt.shape[0], device=ZZt.device, dtype=ZZt.dtype)
             alpha = torch.linalg.solve(ZZt, residual)  # [N, m]
-            return prior_q + alpha.T @ Zc  # [m, k]
+            return prior_eff + alpha.T @ Zc  # [m, k]
 
         # Per-row weighted solve via SVD of Zc
         k = prior_q.shape[1]
